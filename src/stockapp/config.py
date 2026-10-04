@@ -70,8 +70,10 @@ class RiskConfig(_Strict):
     max_stock_weight: float = Field(gt=0, le=1)
     max_sector_weight: float = Field(gt=0, le=1)
     stop_atr_multiple: float = Field(gt=0)
+    trailing_stop_atr_multiple: float | None = Field(default=None, gt=0)
     drawdown_review: float = Field(lt=0)
     drawdown_pause: float = Field(lt=0)
+    stress_vix_percentile: float = Field(gt=0, lt=1)
 
 
 class UniverseConfig(_Strict):

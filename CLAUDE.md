@@ -106,6 +106,15 @@ Neon later) for app state, LightGBM, scikit-learn, Streamlit, pytest, ruff, GitH
   (A: 5/week by expected gain), and never lowers the bar. Both signals are OFF as of 2026-10-04;
   see docs/MODEL_CARD.md for numbers and known limits (overconfident tails).
 
+## Weekly plan (M8)
+- `uv run stockapp plan build [--notify]` -> Postgres `weekly_plans` (+ `plan_actions` from the
+  This Week log). `plan/engine.py` is pure; `plan/inputs.py` gathers data; `plan/rules.py` holds
+  the deterministic rules (stop 2xATR below cost, optional trailing stop, signal B, stress regime,
+  time-weighted drawdown). Rules are labelled as rules, never with a percentage.
+- Position size = min(cash left, max(15% of portfolio+budget, minimum position)), whole shares.
+- Telegram text comes from `cli.plan_summary`: tickers and counts only (checked by
+  `check_summary_only`).
+
 ## Working rules
 - One milestone at a time. Plan first, wait for approval.
 - Tests with every feature. Run ruff and pytest before saying done.

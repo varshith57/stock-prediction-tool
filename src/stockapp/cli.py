@@ -346,6 +346,63 @@ def _models_train(_: argparse.Namespace) -> int:
     return 0
 
 
+def plan_summary(plan) -> str:
+    """Telegram text: counts, tickers and status only (never amounts or holdings values)."""
+    if plan.status == "NO_SIGNAL":
+        return f"Weekly plan for {plan.week_of:%a %d %b}: NO SIGNAL ({plan.status_reason})."
+    parts = [f"Weekly plan for {plan.week_of:%a %d %b}: {plan.action_count} action(s)."]
+    if plan.exits:
+        parts.append("Sell: " + ", ".join(i.symbol for i in plan.exits) + ".")
+    if plan.opportunities:
+        parts.append("Buy: " + ", ".join(i.symbol for i in plan.opportunities) + ".")
+    off = [s for s, g in plan.gates.items() if g.status != "LIVE"]
+    if off:
+        parts.append(f"Signal(s) {', '.join(off)} OFF (can't meet the 90% bar yet).")
+    if plan.closest:
+        parts.append(f"Closest: {plan.closest['symbol']} at {plan.closest['probability']:.0%}.")
+    parts.extend(n[0].upper() + n[1:] + "." for n in plan.notes if "paused" in n or "stress" in n)
+    return " ".join(parts)
+
+
+def _plan_build(args: argparse.Namespace) -> int:
+    from stockapp.db import connect
+    from stockapp.features.pipeline import FEATURE_VERSION
+    from stockapp.lake import Lake
+    from stockapp.plan import inputs
+    from stockapp.plan.engine import build_plan
+    from stockapp.plan.store import PlanLocked, save_plan
+    from stockapp.portfolio import service
+
+    lake, cfg, today = Lake.from_settings(), get_app_config(), date.today()
+    scores = lake.scan("gold", "latest_scores").collect()
+    signal_date = scores["trade_date"].max()
+    cands, market, model_version = inputs.candidates(lake, signal_date)
+    with connect() as conn:
+        states, weights, dd, budget = inputs.holdings(conn, lake, cfg, today)
+        portfolio_value = service.load(conn, lake, cfg, today).view.totals["value"]
+        plan = build_plan(
+            cfg=cfg, signal_date=signal_date, week_of=inputs.next_monday(signal_date),
+            quality_score=inputs.quality_for(lake, signal_date), candidates=cands,
+            holdings=states, holding_weights=weights, gates=inputs.gates(lake),
+            regime=inputs.regime(market, cfg), drawdown=dd, budget_available=budget,
+            portfolio_value=portfolio_value, model_version=model_version,
+        )  # fmt: skip
+        try:
+            plan_id = save_plan(conn, plan, FEATURE_VERSION)
+        except PlanLocked as exc:
+            print(f"Not saved: {exc}", file=sys.stderr)
+            return 1
+    text = plan_summary(plan)
+    print(f"plan {plan_id}: {text}")
+    if args.notify:
+        try:
+            send_message(text)
+        except AlertError as exc:
+            print(f"Telegram failed: {exc}", file=sys.stderr)
+            return 1
+    return 0
+
+
 def _calendar_refresh(_: argparse.Namespace) -> int:
     from stockapp.db import connect
     from stockapp.ingest.calendar import refresh_holidays
@@ -421,6 +478,13 @@ def main(argv: list[str] | None = None) -> int:
     mod_sub.add_parser("train", help="fit final models and score the latest week").set_defaults(
         func=_models_train
     )
+
+    pl_ = sub.add_parser("plan", help="M8: weekly plan")
+    pb = pl_.add_subparsers(dest="plan_command", required=True).add_parser(
+        "build", help="build this week's plan from the latest scores, gate, holdings and rules"
+    )
+    pb.add_argument("--notify", action="store_true", help="send the Telegram summary")
+    pb.set_defaults(func=_plan_build)
 
     feat = sub.add_parser("features", help="M5: point-in-time features and labels")
     feat_sub = feat.add_subparsers(dest="features_command", required=True)

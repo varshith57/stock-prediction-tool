@@ -21,6 +21,8 @@ uv run stockapp calendar refresh
 uv run stockapp ingest nse-udiff --start 2026-09-29 --end 2026-10-01
 uv run stockapp quality build    # company master, adjustments, universe, quality, app tables
 uv run stockapp set-password     # then put the printed APP_PASSWORD_HASH line in .env
+uv run stockapp features build && uv run stockapp models backtest && uv run stockapp models train
+uv run stockapp plan build       # this week's plan (add --notify for the Telegram summary)
 uv run streamlit run app/streamlit_app.py
 uv run pytest                # tests (live ones skip without secrets)
 uv run stockapp config       # show product config
@@ -38,3 +40,4 @@ uv run stockapp telegram-test
 | M4 Portfolio | Done: Portfolio screen (holdings at the latest NSE close, gain/loss after Zerodha charges, tax estimate, sector caps), FIFO ledger with automatic bonus/split adjustment, Kite CSV import with preview, password login; totals match a hand calculation within ₹1 |
 | M5 Features | Done (gate PASS): 53 point-in-time features in 10 families, labels A/C per AM2, 265k weekly samples 2016-2026; truncation, random-walk and shuffled-label (AUC 0.50) leakage tests pass |
 | M6-M7 Models and gate | Done: walk-forward LightGBM A/C (35 quarterly folds, purged, calibrated) + expected-gain model; beats volatility and momentum baselines (A top-5 precision 22.6% vs 15.3%); **both signals OFF** at the 90% bar (best: A 43%, C 65%). See [docs/MODEL_CARD.md](docs/MODEL_CARD.md) |
+| M8 Weekly plan | Done: plan engine (NO SIGNAL on low data quality; stop-loss/trailing/signal-B rules; C exits and A opportunities only when LIVE, capped and budget-sized; stress-regime and drawdown pauses), This Week screen with one-tap logging, Telegram summary (no amounts). Current plan: no actions, closest candidate shown |

@@ -23,8 +23,11 @@ risk:
   max_stock_weight: 0.15
   max_sector_weight: 0.30
   stop_atr_multiple: 2.0
+  trailing_stop_atr_multiple: null  # off until set (PRD: "set in Settings")
   drawdown_review: -0.08
   drawdown_pause: -0.12
+  stress_vix_percentile: 0.8        # stress regime: Nifty 500 below its 200-day average AND
+                                    # India VIX in its top 20% of the last year (AM5: blocks buys)
 
 universe:
   size: 500
