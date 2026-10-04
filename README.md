@@ -9,6 +9,8 @@ to a broker.
 
 - What and why: [docs/PRD.md](docs/PRD.md); build order and agreed amendments: [docs/PLAN.md](docs/PLAN.md)
 - Accounts and secrets: [docs/SETUP.md](docs/SETUP.md)
+- Operations, schedule and recovery: [docs/RUNBOOK.md](docs/RUNBOOK.md)
+- Model results and limits: [docs/MODEL_CARD.md](docs/MODEL_CARD.md)
 
 ## Quick start
 
@@ -42,4 +44,5 @@ uv run stockapp telegram-test
 | M6-M7 Models and gate | Done: walk-forward LightGBM A/C (35 quarterly folds, purged, calibrated) + expected-gain model; beats volatility and momentum baselines (A top-5 precision 22.6% vs 15.3%); **both signals OFF** at the 90% bar (best: A 43%, C 65%). See [docs/MODEL_CARD.md](docs/MODEL_CARD.md) |
 | M8 Weekly plan | Done: plan engine (NO SIGNAL on low data quality; stop-loss/trailing/signal-B rules; C exits and A opportunities only when LIVE, capped and budget-sized; stress-regime and drawdown pauses), This Week screen with one-tap logging, Telegram summary (no amounts). Current plan: no actions, closest candidate shown |
 | M10 Monthly Audit | Done: verdict, scorecard vs the 90% claim (issued = what the plans showed), missed events, your logged actions with reasons, money vs Nifty 50 with the same cash flows, live calibration, data/model health, evidence-gated proposals; lock and export. Reconciles with the log (gate) |
-| M9 Automation | Built: daily/weekly/monthly jobs on this Mac via launchd (stop at first failure, Telegram failure alerts, 3/week cap with hard-rule exemption); `uv run stockapp schedule show` / `install` |
+| M9 Automation | Done, installed 2026-10-04 (first unattended weekly run Fri 9 Oct 20:00): daily/weekly/monthly jobs on this Mac via launchd, failure alerts, 3/week cap. See [docs/RUNBOOK.md](docs/RUNBOOK.md) |
+| M11 Paper test | Started: every weekly plan and score is logged; the audit fills in as weeks mature. Go live only after a signal passes the gate on live results |
