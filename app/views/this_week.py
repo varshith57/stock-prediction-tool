@@ -36,6 +36,18 @@ def _log_buttons(plan_id: int, key: str, logged: dict) -> None:
         st.caption(
             f"Logged {current['action']} on {current['acted_at'].astimezone(IST):%a %d %b %H:%M}"
         )
+        if current["action"] != "done":
+            reasons = ["", "price moved", "no cash", "disagreed", "other"]
+            why = st.selectbox(
+                "Why? (optional)",
+                reasons,
+                key=f"why:{key}",
+                index=reasons.index(current["reason"]) if current["reason"] in reasons else 0,
+            )
+            if why and why != current["reason"]:
+                with connect() as conn:
+                    log_action(conn, plan_id, key, current["action"], why)
+                st.rerun()
 
 
 def render() -> None:

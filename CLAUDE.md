@@ -115,6 +115,12 @@ Neon later) for app state, LightGBM, scikit-learn, Streamlit, pytest, ruff, GitH
 - Telegram text comes from `cli.plan_summary`: tickers and counts only (checked by
   `check_summary_only`).
 
+## Monthly Audit (M10)
+- `audit/report.py`: issued signals come from saved plans (what was shown), outcomes from
+  weekly-sample labels, live calibration from the `latest_scores` history. Health counts
+  unresolved failures (latest attempt failed) and open quarantine by severity.
+- Proposals need min_signals matured signals and are never applied automatically.
+
 ## Working rules
 - One milestone at a time. Plan first, wait for approval.
 - Tests with every feature. Run ruff and pytest before saying done.
