@@ -1,0 +1,4 @@
+# Copy to config/local.yaml (gitignored) and set your own values. Any key from defaults.yaml can be
+# overridden; only the keys you list here change.
+budget:
+  weekly_inr: 1000

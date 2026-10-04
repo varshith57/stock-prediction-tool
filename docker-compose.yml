@@ -1,0 +1,17 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: stockapp
+      POSTGRES_PASSWORD: stockapp   # local-only dev credentials
+      POSTGRES_DB: stockapp
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stockapp"]
+      interval: 5s
+      retries: 10
+volumes:
+  pgdata:

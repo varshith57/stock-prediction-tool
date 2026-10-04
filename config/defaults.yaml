@@ -1,0 +1,60 @@
+# Product defaults. Versioned with the code and public, so no personal amounts here.
+# Personal values (budget etc.) go in config/local.yaml (gitignored), layered on top of this file.
+# Changes made later in the app's Settings page are stored as config versions in Postgres.
+version: 1
+
+budget:
+  weekly_inr: 2000          # accumulates week to week (AM9); override in local.yaml
+  min_position_inr: 3000
+
+signals:
+  gain_threshold: 0.10      # signal A
+  crash_threshold: 0.10     # signal C
+  window_trading_days: 5
+  certainty_bar: 0.90
+  max_opportunities: 5
+  gate:
+    min_signals: 30
+    min_wilson_lower_bound: 0.80
+    live_recheck_last_n: 20
+    live_min_precision: 0.80
+
+risk:
+  max_stock_weight: 0.15
+  max_sector_weight: 0.30
+  stop_atr_multiple: 2.0
+  drawdown_review: -0.08
+  drawdown_pause: -0.12
+
+universe:
+  size: 500
+  rank_by: median_traded_value_6m   # AM3
+  min_listing_days: 250
+  allow_buy_before_results: false
+
+data:
+  history_start: "2016-01-01"       # AM4
+  min_quality_score: 90
+
+costs:                              # Zerodha equity delivery; confirm periodically
+  brokerage: 0.0
+  stt_rate: 0.001                   # each side
+  stamp_duty_buy_rate: 0.00015
+  exchange_txn_rate: 0.0000307      # NSE
+  dp_charge_per_scrip_sell_inr: 15.34
+  gst_rate: 0.18                    # on exchange charges and DP fee
+  slippage_bps: 15
+
+tax:                                # indicative only
+  stcg_rate: 0.20
+  ltcg_rate: 0.125
+  ltcg_exemption_inr: 125000
+
+alerts:
+  telegram_enabled: true
+  max_per_week: 3
+  hide_closest_candidate: false
+
+schedule:                           # IST
+  daily_run: "19:30"
+  weekly_plan: "FRI 20:00"

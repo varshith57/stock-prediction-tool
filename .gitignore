@@ -1,0 +1,28 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# data and model outputs stay out of git (lake is local or R2)
+data/
+tests/fixtures/private/
+config/local.yaml
+mlruns/
+*.parquet
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+
+# os / editors
+.DS_Store
+.idea/
+.vscode/
+
+# source docs (originals kept locally; markdown copies live in docs/)
+*.docx
