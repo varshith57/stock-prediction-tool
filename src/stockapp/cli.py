@@ -69,9 +69,12 @@ def _connectors() -> dict:
     from stockapp.ingest.nse_index import NseIndexClose
     from stockapp.ingest.nse_legacy import NseLegacyBhavcopy
     from stockapp.ingest.nse_mto import NseMtoDelivery
+    from stockapp.ingest.nse_reference import NseEquityList, NseSymbolChanges
     from stockapp.ingest.nse_udiff import NseUdiffBhavcopy
 
     return {
+        "nse-symbol-changes": NseSymbolChanges,
+        "nse-equity-list": NseEquityList,
         "nse-udiff": NseUdiffBhavcopy,
         "nse-legacy": NseLegacyBhavcopy,
         "nse-mto": NseMtoDelivery,
@@ -204,6 +207,45 @@ def _probe_earliest(args: argparse.Namespace) -> int:
     return 0
 
 
+def _quality_build(args: argparse.Namespace) -> int:
+    """M3 pipeline, in dependency order. Each step rebuilds from silver/raw; nothing is edited."""
+    import polars as pl
+
+    from stockapp.adjust import build_adjustments, continuity_check
+    from stockapp.lake import Lake
+    from stockapp.master import build_company_master
+    from stockapp.quality.gates import build_price_flags
+    from stockapp.quality.score import build_quality_scores
+    from stockapp.universe import build_universe
+
+    lake, today = Lake.from_settings(), date.today()
+    m = build_company_master(lake, today)
+    print(f"company master: {m['company_id'].n_unique()} companies, {m.height} symbol segments")
+    b = build_adjustments(lake, today)
+    print(
+        f"corporate actions: {b.events.height} events, {b.factors.height} factor days, "
+        f"{b.breaks.height} series breaks, {b.skipped.height} skipped, {b.unmapped.height} unmapped"
+    )
+    c = continuity_check(lake)
+    print(f"continuity: {c['passed'].sum()}/{c.height} price events reconcile")
+    u = build_universe(lake, size=get_app_config().universe.size)
+    print(f"universe: {u['month'].n_unique()} months, {u.height} memberships")
+    f = build_price_flags(lake, today)
+    counts = f.group_by("severity", "check").len().sort("severity", "check")
+    print("quality flags:\n" + "\n".join(f"  {s} {k}: {n}" for s, k, n in counts.iter_rows()))
+    q = build_quality_scores(lake, today)
+    low = q.filter(pl.col("score") < 95).height
+    print(
+        f"quality score: {q.height} sessions, mean {q['score'].mean():.2f}, "
+        f"min {q['score'].min():.2f}, below 95: {low}, latest {q['score'][-1]:.2f}"
+    )
+    from stockapp.quality.gate import evaluate_m3_gate
+
+    gate = evaluate_m3_gate(lake, q)
+    print("\n".join(gate.lines))
+    return 0 if gate.passed else 1
+
+
 def _calendar_refresh(_: argparse.Namespace) -> int:
     from stockapp.db import connect
     from stockapp.ingest.calendar import refresh_holidays
@@ -243,8 +285,12 @@ def main(argv: list[str] | None = None) -> int:
 
     ing = sub.add_parser("ingest", help="fetch, archive, validate and load daily files")
     ing.add_argument(
-        "source", choices=["nse-udiff", "nse-legacy", "nse-mto", "nse-index", "nse-corp-actions"]
-    )
+        "source",
+        choices=[
+            "nse-udiff", "nse-legacy", "nse-mto", "nse-index", "nse-corp-actions",
+            "nse-symbol-changes", "nse-equity-list",
+        ],
+    )  # fmt: skip
     ing.add_argument("--start", type=_parse_day, required=True, help="YYYY-MM-DD")
     ing.add_argument("--end", type=_parse_day, help="YYYY-MM-DD (default: same as --start)")
     ing.add_argument("--force", action="store_true", help="reload even if already loaded")
@@ -266,6 +312,11 @@ def main(argv: list[str] | None = None) -> int:
     ).set_defaults(func=_universe_build)
 
     sub.add_parser("coverage", help="coverage report and the M2 gate").set_defaults(func=_coverage)
+
+    qual = sub.add_parser("quality", help="M3: company master, adjustments, gates, score")
+    qual.add_subparsers(dest="quality_command", required=True).add_parser(
+        "build", help="rebuild master, adjustments, universe, flags and daily scores"
+    ).set_defaults(func=_quality_build)
 
     probe = sub.add_parser("probe-earliest", help="binary-search a source's first available date")
     probe.add_argument("source", choices=["nse-udiff", "nse-legacy", "nse-mto", "nse-index"])

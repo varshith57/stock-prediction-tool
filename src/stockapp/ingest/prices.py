@@ -24,6 +24,9 @@ PRICE_COLUMNS = (
     "prev_close", "volume", "value_inr", "trades",
 )  # fmt: skip
 REQUIRED = ("trade_date", "symbol", "series", "open", "high", "low", "close", "volume")
+MAIN_BOARD_SERIES = ("EQ", "BE", "BZ")  # SME (SM, ST) and other series excluded
+# Equities only: INE (and IN9 for DVR shares). INF is ETF / fund units, which aren't companies.
+EQUITY_ISIN_SQL = "(isin LIKE 'INE%' OR isin LIKE 'IN9%')"
 
 
 def validate_price_frame(df: pl.DataFrame, day: date, min_rows: int) -> list[Issue]:

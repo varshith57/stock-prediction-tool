@@ -69,3 +69,24 @@ nse_corporate_actions:
     (caBroadcastDate always empty so far).
   fallback: BSE corporate actions; exchange announcement archives
   earliest_date_note: Spot-checked 2026-10-04 Aug 2000 returns 87 actions (2016 full year 2,106 incl. 25 bonuses, 23 splits); earlier not checked.
+
+nse_symbol_changes:
+  name: NSE symbol change list (symbolchange.csv)
+  provides: Every NSE symbol change with company name, old symbol, new symbol and effective date
+  access: Public archive CSV (no header row), fetched as a dated snapshot; browser-like headers
+  url_template: https://nsearchives.nseindia.com/content/equities/symbolchange.csv
+  terms_note: >-
+    Personal, non-commercial use; no redistribution. Snapshot of the full history; refreshed weekly.
+  fallback: Infer renames from ISIN continuity in the daily price files
+  earliest_date_note: Snapshot on 2026-10-04 covers changes from 1999-09-15 to 2026-09-25.
+
+nse_equity_list:
+  name: NSE listed equities (EQUITY_L.csv)
+  provides: Currently listed equities with company name, series, listing date, ISIN, face value, market lot
+  access: Public archive CSV, fetched as a dated snapshot; browser-like headers
+  url_template: https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv
+  terms_note: >-
+    Personal, non-commercial use; no redistribution. Current listings only (no delisted names);
+    history comes from the daily price files.
+  fallback: ISIN and names from the daily price files
+  earliest_date_note: Current snapshot only (first fetched 2026-10-04).

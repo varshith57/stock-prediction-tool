@@ -16,8 +16,8 @@ import psycopg
 
 from stockapp.ingest.prices import UDIFF_CUTOVER, combined_prices_sql
 from stockapp.lake import Lake
+from stockapp.master import company_prices_sql
 from stockapp.universe import DATASET as UNIVERSE
-from stockapp.universe import MAIN_BOARD_SERIES
 
 GATE_MIN_PCT = 98.0
 NOT_LOADED = "_dataset not loaded yet_\n"
@@ -59,7 +59,6 @@ def build_coverage(
     out: list[str] = [f"# Data coverage report ({today.isoformat()})\n"]
     db = duckdb.connect()
     prices = combined_prices_sql(lake)
-    series = ", ".join(f"'{s}'" for s in MAIN_BOARD_SERIES)
 
     # 1. sources -------------------------------------------------------------------------------
     jobs = _q(
@@ -154,14 +153,16 @@ def build_coverage(
     if has[UNIVERSE]:
         daily = db.sql(
             f"""
-        WITH u AS (SELECT month, symbol FROM read_parquet('{uni_glob}', hive_partitioning = true)),
+        WITH u AS (SELECT month, company_id
+                   FROM read_parquet('{uni_glob}', hive_partitioning = true)),
         sess AS (SELECT DISTINCT trade_date FROM ({prices})),
-        p AS (SELECT DISTINCT trade_date, symbol FROM ({prices}) WHERE series IN ({series}))
-        SELECT sess.trade_date, count(u.symbol) AS universe_size, count(p.symbol) AS priced,
-               round(100.0 * count(p.symbol) / count(u.symbol), 2) AS pct
+        p AS (SELECT trade_date, company_id FROM ({company_prices_sql(lake)}))
+        SELECT sess.trade_date, count(u.company_id) AS universe_size,
+               count(p.company_id) AS priced,
+               round(100.0 * count(p.company_id) / count(u.company_id), 2) AS pct
         FROM sess
         JOIN u ON u.month = strftime(sess.trade_date, '%Y-%m')
-        LEFT JOIN p ON p.trade_date = sess.trade_date AND p.symbol = u.symbol
+        LEFT JOIN p ON p.trade_date = sess.trade_date AND p.company_id = u.company_id
         GROUP BY 1 ORDER BY 1
         """
         ).pl()
@@ -187,13 +188,14 @@ def build_coverage(
     if has[UNIVERSE] and has["nse_cm_delivery"]:
         deliv = db.sql(
             f"""
-        WITH u AS (SELECT month, symbol FROM read_parquet('{uni_glob}', hive_partitioning = true)),
-        p AS (SELECT DISTINCT trade_date, symbol FROM ({prices}) WHERE series IN ({series})),
+        WITH u AS (SELECT month, company_id
+                   FROM read_parquet('{uni_glob}', hive_partitioning = true)),
+        p AS (SELECT trade_date, company_id, symbol FROM ({company_prices_sql(lake)})),
         d AS (SELECT DISTINCT trade_date, symbol
               FROM read_parquet('{deliv_glob}', hive_partitioning = true))
         SELECT year(p.trade_date) AS year, count(*) AS member_days,
                round(100.0 * count(d.symbol) / count(*), 2) AS with_delivery_pct
-        FROM p JOIN u ON u.month = strftime(p.trade_date, '%Y-%m') AND u.symbol = p.symbol
+        FROM p JOIN u ON u.month = strftime(p.trade_date, '%Y-%m') AND u.company_id = p.company_id
         LEFT JOIN d ON d.trade_date = p.trade_date AND d.symbol = p.symbol
         GROUP BY 1 ORDER BY 1
         """

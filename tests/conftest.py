@@ -76,6 +76,35 @@ def zip_csv(csv_text: str, name: str = "data.csv") -> bytes:
     return buf.getvalue()
 
 
+def write_symbol_changes(
+    lake: Lake, changes: list[tuple[str, str, str]] | None = None, snapshot: str = "2026-10-04"
+) -> None:
+    """Write a symbol-change snapshot: (old_symbol, new_symbol, change_date ISO) tuples."""
+    from datetime import date as _date
+
+    import polars as pl
+
+    rows = changes or [("ZZOLD", "ZZNEW", "2000-01-03")]  # irrelevant row: no renames by default
+    df = pl.DataFrame(
+        {
+            "company": [f"{o} Ltd" for o, _, _ in rows],
+            "old_symbol": [o for o, _, _ in rows],
+            "new_symbol": [n for _, n, _ in rows],
+            "change_date": [_date.fromisoformat(d) for _, _, d in rows],
+        }
+    )
+    lake.write_partition("silver", "nse_symbol_changes", "snapshot_date", snapshot, df)
+
+
+def build_master(lake: Lake, changes: list[tuple[str, str, str]] | None = None):
+    from datetime import date as _date
+
+    from stockapp.master import build_company_master
+
+    write_symbol_changes(lake, changes)
+    return build_company_master(lake, _date(2026, 10, 4))
+
+
 @pytest.fixture
 def udiff_csv() -> str:
     return (FIXTURES / "udiff_synthetic.csv").read_text()

@@ -64,6 +64,20 @@ Neon later) for app state, LightGBM, scikit-learn, Streamlit, pytest, ruff, GitH
   yet adjusted into prices (M3). Total-return indices not available yet.
 - Universe and coverage: `uv run stockapp universe build` then `uv run stockapp coverage`.
 
+## Quality layer (M3)
+- `uv run stockapp quality build`: company master -> corporate-action events/factors/breaks ->
+  universe -> price flags -> daily score -> M3 gate (exit 1 if it fails). About 35 s.
+- Always read prices through `master.company_prices_sql` (company_id, equities only: ISIN INE/IN9,
+  series EQ>BE>BZ) or `adjust.adjusted_prices_sql` (adds adj_* and tr_close); never raw symbols.
+- NSE's corporate-action feed files history under the company's CURRENT symbol; events map by the
+  symbol at the ex-date, else the current holder (`mapped_by`). Unmapped events are reported.
+- Delivery: `master.company_delivery_sql`. BE/BZ have no MTO rows by design: 100% by rule
+  (`delivery_source = 'rule_trade_for_trade'`).
+- Unadjustable events (demerger, amalgamation, restructuring, capital reduction, bonus
+  debentures, rights without price) are series breaks: features must not span them.
+- BLOCK flags (silver `price_quality_flags`, date ranges) exclude a company from signals for the
+  covered dates: unreconciled adjustments, possible missing actions, unparsed price actions, OHLC.
+
 ## Working rules
 - One milestone at a time. Plan first, wait for approval.
 - Tests with every feature. Run ruff and pytest before saying done.

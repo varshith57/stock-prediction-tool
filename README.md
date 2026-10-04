@@ -30,4 +30,5 @@ uv run stockapp telegram-test
 |---|---|
 | M0 Setup | Done |
 | M1 Data platform | Done: lake, app DB schema, source registry, connector framework, NSE calendar, NSE daily prices (current format) |
-| M2 History backfill | Done (Gate G1 PASS, 2026-10-04): 2016-01 to 2026-10, 2,521 universe sessions, none below 98% priced (worst 98.8%), delivery 98-99.9%, index closes every session but one |
+| M2 History backfill | Done (Gate G1 PASS, 2026-10-04): 2016-01 to 2026-10, 2,521 universe sessions, none below 98% priced, delivery 98-99.9%, index closes every session but one |
+| M3 Quality gates | Done (gate PASS, 2026-10-04): company master (3,628 companies, renames tracked), corporate-action adjustment with 1,015/1,018 events reconciling and 16/16 known large-cap events, quality score >= 95 on 98.6% of sessions |

@@ -11,6 +11,7 @@ import polars as pl
 import psycopg
 import pytest
 import respx
+from conftest import build_master
 from synthetic import corp_actions_json, index_csv, legacy_zip, mto_bytes, udiff_zip
 
 from stockapp.coverage import build_coverage
@@ -23,6 +24,7 @@ from stockapp.ingest.nse_mto import NseMtoDelivery
 from stockapp.ingest.nse_udiff import NseUdiffBhavcopy
 from stockapp.ingest.prices import combined_prices_sql
 from stockapp.lake import Lake
+from stockapp.master import company_prices_sql
 from stockapp.universe import build_universe, universe_sql
 
 _MON = {m: i + 1 for i, m in enumerate(_MONTHS)}
@@ -180,7 +182,7 @@ def _write_prices(lake: Lake, rows_by_day: dict[date, list[tuple[str, str, float
                 "trade_date": [day] * len(rows),
                 "symbol": [r[0] for r in rows],
                 "series": [r[1] for r in rows],
-                "isin": ["X"] * len(rows),
+                "isin": [f"INE{abs(hash(r[0])) % 10**6:06d}01" for r in rows],
                 **{
                     c: [1.0] * len(rows)
                     for c in ("open", "high", "low", "close", "last", "prev_close")
@@ -204,6 +206,7 @@ def test_universe_is_point_in_time_liquidity_ranked(lake: Lake):
             r.append(("NEWBIG", "EQ", 1_000.0))  # appears in February
         rows[d] = r
     _write_prices(lake, rows)
+    build_master(lake)
 
     df = build_universe(lake, size=2, window=10)
     feb = df.filter(pl.col("month") == "2016-02")["symbol"].to_list()
@@ -218,7 +221,8 @@ def test_universe_sql_has_no_month_before_a_full_window(lake: Lake):
     _write_prices(
         lake, {d: [("AAA", "EQ", 1.0)] for d in _weekdays(date(2016, 1, 1), date(2016, 1, 29))}
     )
-    sql = universe_sql(combined_prices_sql(lake), size=5, window=30)
+    build_master(lake)
+    sql = universe_sql(company_prices_sql(lake), size=5, window=30)
     assert duckdb.sql(sql).fetchall() == []
 
 
@@ -231,6 +235,7 @@ def test_coverage_gate(db: psycopg.Connection, lake: Lake, small_files):
     respx.route().mock(side_effect=FakeNse(sessions))
     backfill(db, lake, _client(), _client(), date(2016, 1, 1), date(2016, 2, 29),
              today=date(2016, 3, 1), log=lambda _: None)  # fmt: skip
+    build_master(lake)
     build_universe(lake, size=3, window=5)
 
     result = build_coverage(db, lake, today=date(2016, 3, 1))
