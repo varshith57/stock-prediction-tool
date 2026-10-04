@@ -381,12 +381,20 @@ def _plan_build(args: argparse.Namespace) -> int:
         states, weights, dd, budget = inputs.holdings(conn, lake, cfg, today)
         portfolio_value = service.load(conn, lake, cfg, today).view.totals["value"]
         plan = build_plan(
-            cfg=cfg, signal_date=signal_date, week_of=inputs.next_monday(signal_date),
-            quality_score=inputs.quality_for(lake, signal_date), candidates=cands,
-            holdings=states, holding_weights=weights, gates=inputs.gates(lake),
-            regime=inputs.regime(market, cfg), drawdown=dd, budget_available=budget,
-            portfolio_value=portfolio_value, model_version=model_version,
-        )  # fmt: skip
+            cfg=cfg,
+            signal_date=signal_date,
+            week_of=inputs.next_monday(signal_date),
+            quality_score=inputs.quality_for(lake, signal_date),
+            candidates=cands,
+            holdings=states,
+            holding_weights=weights,
+            gates=inputs.gates(lake),
+            regime=inputs.regime(market, cfg),
+            drawdown=dd,
+            budget_available=budget,
+            portfolio_value=portfolio_value,
+            model_version=model_version,
+        )
         try:
             plan_id = save_plan(conn, plan, FEATURE_VERSION)
         except PlanLocked as exc:
@@ -400,6 +408,59 @@ def _plan_build(args: argparse.Namespace) -> int:
         except AlertError as exc:
             print(f"Telegram failed: {exc}", file=sys.stderr)
             return 1
+    return 0
+
+
+def _job(args: argparse.Namespace) -> int:
+    from stockapp import jobs
+    from stockapp.db import connect, migrate
+    from stockapp.lake import Lake
+
+    today = args.date or date.today()
+    if args.name == "monthly" and args.date is None and today.day > 7:
+        print("monthly: not the first Saturday of the month; nothing to do")
+        return 0
+    cfg, lake = get_app_config(), Lake.from_settings()
+    print(f"[{datetime.now(IST):%Y-%m-%d %H:%M}] job {args.name} for {today}", flush=True)
+    try:
+        conn_cm = connect()
+        conn = conn_cm.__enter__()
+    except Exception as exc:
+        import contextlib
+
+        with contextlib.suppress(AlertError):
+            send_message(
+                f"stockapp {args.name} job couldn't reach its database "
+                f"({type(exc).__name__}). Is Docker running?"
+            )
+        print(f"FAILED: database unreachable: {exc}", file=sys.stderr)
+        return 1
+    try:
+        migrate(conn)
+        steps = {
+            "daily": jobs.daily_steps,
+            "weekly": jobs.weekly_steps,
+            "monthly": jobs.monthly_steps,
+        }[args.name](conn, lake, cfg, today)
+        result = jobs.run_steps(conn, cfg, args.name, steps, today)
+    finally:
+        conn_cm.__exit__(None, None, None)
+    print("\n".join(result.lines), flush=True)
+    return 0 if result.ok else 1
+
+
+def _schedule(args: argparse.Namespace) -> int:
+    from stockapp import schedule
+
+    if args.action == "show":
+        for job in schedule.TIMES:
+            print(
+                f"# {schedule.AGENTS}/{schedule.LABEL.format(job=job)}.plist\n{schedule.plist(job)}"
+            )
+    elif args.action == "install":
+        print("Installed and loaded:\n" + "\n".join(schedule.install()))
+    else:
+        print("Removed:\n" + "\n".join(schedule.uninstall() or ["(nothing installed)"]))
     return 0
 
 
@@ -444,10 +505,16 @@ def main(argv: list[str] | None = None) -> int:
     ing.add_argument(
         "source",
         choices=[
-            "nse-udiff", "nse-legacy", "nse-mto", "nse-index", "nse-corp-actions",
-            "nse-symbol-changes", "nse-equity-list", "nse-sector-list",
+            "nse-udiff",
+            "nse-legacy",
+            "nse-mto",
+            "nse-index",
+            "nse-corp-actions",
+            "nse-symbol-changes",
+            "nse-equity-list",
+            "nse-sector-list",
         ],
-    )  # fmt: skip
+    )
     ing.add_argument("--start", type=_parse_day, required=True, help="YYYY-MM-DD")
     ing.add_argument("--end", type=_parse_day, help="YYYY-MM-DD (default: same as --start)")
     ing.add_argument("--force", action="store_true", help="reload even if already loaded")
@@ -485,6 +552,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     pb.add_argument("--notify", action="store_true", help="send the Telegram summary")
     pb.set_defaults(func=_plan_build)
+
+    job = sub.add_parser("job", help="M9: run a scheduled job now")
+    job.add_argument("name", choices=["daily", "weekly", "monthly"])
+    job.add_argument("--date", type=_parse_day, help="run as if on this date (default today)")
+    job.set_defaults(func=_job)
+    sch = sub.add_parser("schedule", help="M9: launchd schedule on this Mac")
+    sch.add_argument("action", choices=["show", "install", "uninstall"])
+    sch.set_defaults(func=_schedule)
 
     feat = sub.add_parser("features", help="M5: point-in-time features and labels")
     feat_sub = feat.add_subparsers(dest="features_command", required=True)

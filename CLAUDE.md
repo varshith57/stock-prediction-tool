@@ -121,6 +121,15 @@ Neon later) for app state, LightGBM, scikit-learn, Streamlit, pytest, ruff, GitH
   unresolved failures (latest attempt failed) and open quarantine by severity.
 - Proposals need min_signals matured signals and are never applied automatically.
 
+## Automation (M9: runs on this Mac via launchd, user's choice)
+- `uv run stockapp job daily|weekly|monthly [--date D]`; steps in `jobs.py`, shared logic in
+  `pipeline.py`. A job stops at the first failing step, records every step in `job_runs`, and
+  alerts once via `alerts.notify` (cap 3/week except exit rules; dedupe keys; amounts refused).
+- `uv run stockapp schedule show|install|uninstall`: plists in ~/Library/LaunchAgents
+  (com.stockapp.*). Daily Mon-Thu 19:30, weekly Fri 20:00, monthly Sat 10:00 (first Saturday only).
+  Never install or change the schedule without the user's explicit OK.
+- Logs: data/logs/launchd_<job>.log. Docker (Postgres) must be running for jobs.
+
 ## Working rules
 - One milestone at a time. Plan first, wait for approval.
 - Tests with every feature. Run ruff and pytest before saying done.
