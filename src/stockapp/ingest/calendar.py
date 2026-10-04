@@ -168,3 +168,54 @@ class TradingCalendar:
                 days.append(d)
             d += timedelta(days=1)
         return days
+
+
+def infer_holidays(
+    conn: psycopg.Connection, start: date, end: date, *, price_sources: tuple[str, ...]
+) -> list[date]:
+    """Record past weekdays with no price file as holidays (source ``inferred_no_file``).
+
+    A weekday qualifies only if every listed price source's latest attempt for it was a 404
+    (``not_available``), it has no recorded session, it isn't already a listed holiday, and it is
+    before the latest recorded session. Days
+    whose fetch failed or was never attempted are left alone: those are gaps, not holidays.
+    """
+    rows = conn.execute(
+        """
+        WITH latest AS (
+            SELECT DISTINCT ON (source_id, partition_key) source_id, partition_key, status
+            FROM job_runs
+            WHERE source_id = ANY(%(sources)s) AND partition_key BETWEEN %(lo)s AND %(hi)s
+            ORDER BY source_id, partition_key, started_at DESC, job_run_id DESC
+        ),
+        per_day AS (
+            SELECT partition_key::date AS day, bool_and(status = 'not_available') AS all_404
+            FROM latest GROUP BY 1
+        )
+        SELECT day FROM per_day
+        WHERE all_404 AND extract(isodow FROM day) < 6
+          -- after the latest published session a 404 may just mean "not published yet"
+          AND day < (SELECT max(session_date) FROM trading_sessions
+                     WHERE exchange = %(ex)s AND segment = %(seg)s)
+          AND day NOT IN (SELECT session_date FROM trading_sessions
+                          WHERE exchange = %(ex)s AND segment = %(seg)s)
+          AND day NOT IN (SELECT holiday_date FROM trading_holidays
+                          WHERE exchange = %(ex)s AND segment = %(seg)s)
+        ORDER BY day
+        """,
+        {
+            "sources": list(price_sources),
+            "lo": start.isoformat(),
+            "hi": end.isoformat(),
+            "ex": EXCHANGE,
+            "seg": SEGMENT,
+        },
+    ).fetchall()
+    days = [r["day"] for r in rows]
+    for day in days:
+        conn.execute(
+            """INSERT INTO trading_holidays (exchange, segment, holiday_date, description, source)
+               VALUES (%s, %s, %s, %s, 'inferred_no_file') ON CONFLICT DO NOTHING""",
+            (EXCHANGE, SEGMENT, day, "No exchange file published (inferred)"),
+        )
+    return days

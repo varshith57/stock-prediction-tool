@@ -31,7 +31,10 @@ Neon later) for app state, LightGBM, scikit-learn, Streamlit, pytest, ruff, GitH
 - `uv run ruff check . && uv run ruff format --check .`: lint
 - `docker compose up -d db`: local Postgres; `uv run stockapp migrate`: schema + source registry
 - `uv run stockapp ingest nse-udiff --start YYYY-MM-DD [--end ...]`: fetch, archive, validate, load
-- `uv run stockapp calendar refresh` / `calendar show --start ... --end ...`
+- `uv run stockapp calendar refresh` / `calendar infer` / `calendar show --start ... --end ...`
+- `uv run stockapp backfill [--start 2016-01-01]`: resumable history load (run in background)
+- `uv run stockapp universe build`, `uv run stockapp coverage` (writes data/reports/, exits 1 if
+  Gate G1 fails), `uv run stockapp probe-earliest <source> --floor ... --known-good ...`
 - `uv run stockapp --help`
 
 ## Data platform (M1)
@@ -43,6 +46,16 @@ Neon later) for app state, LightGBM, scikit-learn, Streamlit, pytest, ruff, GitH
   to `ingest/sources.yaml`, record its known header fingerprint. The base class does archiving,
   manifest, quarantine, watermark, health and job runs.
 - Migrations: add a new numbered file in `migrations/`; never edit an applied one (the runner refuses).
+
+## Data sources (M2)
+- Prices: `nse_legacy_bhavcopy` (silver `nse_cm_bhavcopy_legacy`) before 2024-07-08,
+  `nse_udiff_bhavcopy` (silver `nse_cm_bhavcopy`) from then; read them together only through
+  `ingest.prices.combined_prices_sql` (one source per date). Jan to Jul 2024 is in both, for checks.
+- Delivery `nse_mto_delivery` -> `nse_cm_delivery`; indices `nse_index_close` (price indices only;
+  no TRI yet); corporate actions `nse_corporate_actions` by ex-date month (raw subject text; ratios
+  parsed in M3). NSE's JSON API needs a cookie-keeping client and sometimes returns empty 200s.
+- Universe: `universe.build_universe` -> silver `universe_top500` (AM3), point-in-time per month.
+- Values are rupees (turnover too), not lakhs, except index `turnover_cr` (crores).
 
 ## Working rules
 - One milestone at a time. Plan first, wait for approval.

@@ -48,7 +48,9 @@ def test_404_is_not_available_and_not_retried(t: FakeTime):
 
 @respx.mock
 def test_retries_server_errors_with_backoff(t: FakeTime):
-    route = respx.get(URL).mock(side_effect=[httpx.Response(503), httpx.Response(200)])
+    route = respx.get(URL).mock(
+        side_effect=[httpx.Response(503), httpx.Response(200, content=b"ok")]
+    )
     client(t, min_interval_s=0, backoff_s=2).get(URL)
     assert route.call_count == 2
     assert t.sleeps == [2]
@@ -87,9 +89,17 @@ def test_circuit_opens_after_threshold(t: FakeTime):
 
 @respx.mock
 def test_rate_limit_spaces_requests(t: FakeTime):
-    respx.get(URL).mock(return_value=httpx.Response(200))
+    respx.get(URL).mock(return_value=httpx.Response(200, content=b"ok"))
     c = client(t, min_interval_s=1.5)
     c.get(URL)
     t.now += 0.5
     c.get(URL)
     assert t.sleeps == [1.0]
+
+
+@respx.mock
+def test_empty_body_is_retried_then_fails(t: FakeTime):
+    route = respx.get(URL).mock(return_value=httpx.Response(200, content=b""))
+    with pytest.raises(FetchError, match="empty response body"):
+        client(t, min_interval_s=0, retries=2, backoff_s=0).get(URL)
+    assert route.call_count == 3

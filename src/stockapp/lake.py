@@ -77,6 +77,10 @@ class Lake:
                 os.unlink(tmp)
         return path
 
+    def has_table(self, layer: str, dataset: str) -> bool:
+        d = self.table_dir(layer, dataset)
+        return d.is_dir() and next(d.rglob("*.parquet"), None) is not None
+
     def scan(self, layer: str, dataset: str) -> pl.LazyFrame:
         glob = str(self.table_dir(layer, dataset) / "**" / "*.parquet")
         return pl.scan_parquet(glob, hive_partitioning=True)

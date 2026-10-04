@@ -13,7 +13,7 @@ nse_udiff_bhavcopy:
     robots.txt checked 2026-10-04: www.nseindia.com allows / except /market-data-test;
     nsearchives.nseindia.com has no robots.txt.
   fallback: Legacy NSE bhavcopy (pre-July-2024 format); sec_bhavdata_full; BSE bhavcopy
-  earliest_date_note: UDiFF format replaced the legacy bhavcopy in July 2024; exact first date to be probed in M2
+  earliest_date_note: First file 2024-01-01 (binary search, 2026-10-04). Sole price source from 2024-07-08.
 
 nse_holidays:
   name: NSE trading holiday list
@@ -25,3 +25,47 @@ nse_holidays:
     sessions. Past calendars are reconciled against which daily files actually exist.
   fallback: Infer from daily-file existence (weekday 404 = holiday, recorded as inferred)
   earliest_date_note: Current year only
+
+nse_legacy_bhavcopy:
+  name: NSE capital-market bhavcopy (legacy format)
+  provides: Daily OHLC, last, previous close, volume, value and trade count for every NSE CM instrument, with ISIN
+  access: Public archive file, one zip per trading day; browser-like headers; HTTP 404 on non-trading days
+  url_template: https://nsearchives.nseindia.com/content/historical/EQUITIES/{yyyy}/{MON}/cm{dd}{MON}{yyyy}bhav.csv.zip
+  terms_note: >-
+    Personal, non-commercial use; no redistribution. Same terms caveat as nse_udiff_bhavcopy.
+  fallback: nse_udiff_bhavcopy (overlaps Jan to Jul 2024); BSE bhavcopy
+  earliest_date_note: >-
+    Probed 2026-10-04: available on 2010-01-04 (earlier not searched; history starts 2016).
+    Last published 2024-07-05; 404 from 2024-07-08.
+
+nse_mto_delivery:
+  name: NSE security-wise delivery position (MTO)
+  provides: Daily traded quantity, deliverable quantity and delivery % per NSE symbol and series
+  access: Public archive .DAT text file, one per trading day; browser-like headers
+  url_template: https://nsearchives.nseindia.com/archives/equities/mto/MTO_{ddmmyyyy}.DAT
+  terms_note: >-
+    Personal, non-commercial use; no redistribution. Same terms caveat as nse_udiff_bhavcopy.
+  fallback: sec_bhavdata_full (has delivery columns; available from about 2020 only, probed 2026-10-04)
+  earliest_date_note: Available at the 2010-01-04 search floor (probed 2026-10-04); layout unchanged 2016 to 2026.
+
+nse_index_close:
+  name: NSE daily index closes (ind_close_all)
+  provides: OHLC, change, volume, turnover, P/E, P/B and dividend yield for every NSE index incl. Nifty 50, Nifty 500, India VIX
+  access: Public archive CSV, one per trading day; browser-like headers
+  url_template: https://nsearchives.nseindia.com/content/indices/ind_close_all_{ddmmyyyy}.csv
+  terms_note: >-
+    Personal, non-commercial use; no redistribution. Price indices only: total-return indices are
+    not in this file (niftyindices.com TRI endpoint rejected requests on 2026-10-04; open item).
+  fallback: niftyindices.com historical data (TRI too, if its endpoint can be used)
+  earliest_date_note: First file 2012-02-21 (binary search, 2026-10-04); header unchanged 2016 to 2026.
+
+nse_corporate_actions:
+  name: NSE corporate actions (equities)
+  provides: Splits, bonuses, dividends, rights, buybacks and meetings with ex, record and book-closure dates
+  access: JSON API on www.nseindia.com, queried by ex-date month; needs a cookie-keeping session and a Referer; intermittently returns an empty 200 body (retried)
+  url_template: https://www.nseindia.com/api/corporates-corporateActions?index=equities&from_date={dd-mm-yyyy}&to_date={dd-mm-yyyy}
+  terms_note: >-
+    Personal, non-commercial use; no redistribution. No publication timestamp in the payload
+    (caBroadcastDate always empty so far).
+  fallback: BSE corporate actions; exchange announcement archives
+  earliest_date_note: Probed 2026-10-04 2016 returns 2,106 actions (25 bonuses, 23 splits); earlier not searched.

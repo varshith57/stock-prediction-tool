@@ -61,12 +61,13 @@ def load_sources(path: Path = SOURCES_YAML) -> dict[str, dict[str, Any]]:
 
 
 def sync_registry(conn: psycopg.Connection, path: Path = SOURCES_YAML) -> int:
-    """Upsert descriptive fields. Health and earliest_date are left as the database has them."""
+    """Upsert descriptive fields. Health and the earliest date (and its note, once a probe has
+    written one) are owned by the database; the YAML note only seeds a newly added source."""
     sources = load_sources(path)
     for sid, spec in sources.items():
         cols = ["source_id", *_DESCRIPTIVE, "earliest_date_note"]
         vals = [sid, *(spec.get(k) for k in _DESCRIPTIVE), spec.get("earliest_date_note")]
-        updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in cols[1:])
+        updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in cols[1:] if c != "earliest_date_note")
         conn.execute(
             f"INSERT INTO source_registry ({', '.join(cols)}) "
             f"VALUES ({', '.join(['%s'] * len(cols))}) "

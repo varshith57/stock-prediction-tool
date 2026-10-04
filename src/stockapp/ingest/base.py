@@ -55,12 +55,13 @@ def header_fingerprint(header_line: str) -> str:
 
 
 class DailyFileConnector(ABC):
-    """A source that publishes one file per trading day."""
+    """A source that publishes one file per partition (a trading day unless overridden)."""
 
     source_id: ClassVar[str]
-    dataset: ClassVar[str]  # silver dataset written by this connector
+    dataset: ClassVar[str]  # silver dataset written by this connector (it is the only writer)
     partition_col: ClassVar[str] = "trade_date"
     known_fingerprints: ClassVar[frozenset[str]]
+    request_headers: ClassVar[dict[str, str]] = {}
 
     def __init__(self, conn: psycopg.Connection, lake: Lake, http: PoliteClient):
         self.conn = conn
@@ -68,6 +69,9 @@ class DailyFileConnector(ABC):
         self.http = http
 
     # per-source pieces ----------------------------------------------------------------------
+
+    def partition_key(self, day: date) -> str:
+        return day.isoformat()
 
     @abstractmethod
     def url_for(self, day: date) -> str: ...
@@ -91,13 +95,24 @@ class DailyFileConnector(ABC):
 
     # the contract ---------------------------------------------------------------------------
 
-    def run(self, day: date, *, force: bool = False) -> RunResult:
-        key = day.isoformat()
+    def is_loaded(self, day: date) -> bool:
+        row = self.conn.execute(
+            """SELECT 1 FROM source_files
+               WHERE source_id = %s AND partition_key = %s AND status = 'loaded' LIMIT 1""",
+            (self.source_id, self.partition_key(day)),
+        ).fetchone()
+        return row is not None
+
+    def run(self, day: date, *, force: bool = False, skip_if_loaded: bool = False) -> RunResult:
+        """Ingest one partition. ``skip_if_loaded`` avoids even fetching (resumable backfills)."""
+        key = self.partition_key(day)
+        if skip_if_loaded and not force and self.is_loaded(day):
+            return RunResult(self.source_id, key, "skipped", message="already loaded")
         job_id = reg.start_job(self.conn, f"ingest:{self.source_id}", self.source_id, key)
         url = self.url_for(day)
 
         try:
-            content = self.http.get(url).content
+            content = self.http.get(url, headers=self.request_headers or None).content
         except NotAvailable as exc:
             reg.finish_job(self.conn, job_id, "not_available", message=str(exc))
             return RunResult(self.source_id, key, "not_available", message=str(exc))

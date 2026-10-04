@@ -4,6 +4,8 @@
 * A minimum interval between requests (rate limit).
 * Retries with exponential backoff on 429, 5xx and network errors.
 * 404 means "no file published" and is reported as ``NotAvailable``, never retried.
+* An empty 200 body is treated as a failed attempt and retried (NSE's JSON API does this
+  intermittently; an empty answer must never be read as "no data").
 * A circuit breaker: after ``breaker_threshold`` consecutive failures the client stops calling the
   source for the rest of the run, so a blocked source doesn't get hammered.
 """
@@ -91,9 +93,14 @@ class PoliteClient:
             except httpx.TransportError as exc:
                 last_error = type(exc).__name__
             else:
-                if resp.status_code == 200:
+                if resp.status_code == 200 and resp.content:
                     self.consecutive_failures = 0
                     return resp
+                if resp.status_code == 200:
+                    last_error = "empty response body"
+                    if attempt < self.retries:
+                        self._sleep(self.backoff_s * 2**attempt)
+                    continue
                 if resp.status_code == 404:
                     self.consecutive_failures = 0  # the source is up; the file just isn't there
                     raise NotAvailable(f"HTTP 404 for {url}")

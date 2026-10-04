@@ -30,3 +30,4 @@ uv run stockapp telegram-test
 |---|---|
 | M0 Setup | Done |
 | M1 Data platform | Done: lake, app DB schema, source registry, connector framework, NSE calendar, NSE daily prices (current format) |
+| M2 History backfill | In progress: connectors, backfill, universe and coverage built; full 2016+ load running |

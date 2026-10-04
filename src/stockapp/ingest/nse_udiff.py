@@ -16,6 +16,7 @@ import polars as pl
 
 from stockapp.ingest.base import DailyFileConnector, Issue, header_fingerprint
 from stockapp.ingest.calendar import record_session
+from stockapp.ingest.prices import validate_price_frame
 
 # Header of the format seen on 2026-10-01. A different header fails the run as format_changed.
 UDIFF_HEADER_V1 = (
@@ -47,7 +48,6 @@ COLUMNS: dict[str, tuple[str, type[pl.DataType] | pl.DataType]] = {
     "Sgmt": ("segment", pl.String),
     "Src": ("exchange", pl.String),
 }
-REQUIRED = ("trade_date", "symbol", "series", "isin", "open", "high", "low", "close", "volume")
 
 
 class NseUdiffBhavcopy(DailyFileConnector):
@@ -82,26 +82,11 @@ class NseUdiffBhavcopy(DailyFileConnector):
         return raw.select(exprs)
 
     def validate(self, df: pl.DataFrame, day: date) -> list[Issue]:
-        issues: list[Issue] = []
-        if df.height < self.min_rows:
-            issues.append(Issue("BLOCK", "too_few_rows", {"rows": df.height, "min": self.min_rows}))
-        dates = df["trade_date"].unique().to_list()
-        if dates != [day]:
-            issues.append(Issue("BLOCK", "date_mismatch", {"requested": day, "found": dates[:5]}))
+        issues = validate_price_frame(df, day, self.min_rows)
         for col, expected in (("segment", "CM"), ("exchange", "NSE")):
             found = df[col].unique().to_list()
             if found != [expected]:
                 issues.append(Issue("BLOCK", f"unexpected_{col}", {"found": found[:5]}))
-        nulls = {c: n for c in REQUIRED if (n := df[c].null_count())}
-        if nulls:
-            issues.append(Issue("BLOCK", "required_nulls", nulls))
-        dups = df.group_by("symbol", "series").len().filter(pl.col("len") > 1)
-        if dups.height:
-            issues.append(
-                Issue(
-                    "BLOCK", "duplicate_keys", {"count": dups.height, "sample": dups.head(5).rows()}
-                )
-            )
         return issues
 
     def on_loaded(self, day: date, df: pl.DataFrame) -> None:

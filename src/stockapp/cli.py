@@ -64,13 +64,28 @@ def _parse_day(s: str) -> date:
     return date.fromisoformat(s)
 
 
+def _connectors() -> dict:
+    from stockapp.ingest.nse_corp_actions import NseCorporateActions
+    from stockapp.ingest.nse_index import NseIndexClose
+    from stockapp.ingest.nse_legacy import NseLegacyBhavcopy
+    from stockapp.ingest.nse_mto import NseMtoDelivery
+    from stockapp.ingest.nse_udiff import NseUdiffBhavcopy
+
+    return {
+        "nse-udiff": NseUdiffBhavcopy,
+        "nse-legacy": NseLegacyBhavcopy,
+        "nse-mto": NseMtoDelivery,
+        "nse-index": NseIndexClose,
+        "nse-corp-actions": NseCorporateActions,
+    }
+
+
 def _ingest(args: argparse.Namespace) -> int:
     from stockapp.db import connect
     from stockapp.ingest.http import PoliteClient
-    from stockapp.ingest.nse_udiff import NseUdiffBhavcopy
     from stockapp.lake import Lake
 
-    connectors = {"nse-udiff": NseUdiffBhavcopy}
+    connectors = _connectors()
     start, end = args.start, args.end or args.start
     if end < start:
         print("--end is before --start", file=sys.stderr)
@@ -90,6 +105,103 @@ def _ingest(args: argparse.Namespace) -> int:
                     return 1
             day += timedelta(days=1)
     return 1 if failed else 0
+
+
+def _backfill(args: argparse.Namespace) -> int:
+    from stockapp.db import connect
+    from stockapp.ingest.backfill import BackfillAborted, backfill
+    from stockapp.ingest.http import PoliteClient
+    from stockapp.lake import Lake
+
+    lake = Lake.from_settings()
+    log_dir = lake.root.parent / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"backfill_{datetime.now(IST):%Y%m%d_%H%M%S}.log"
+    end = args.end or date.today()
+    print(f"Backfill {args.start}..{end}; log: {log_path}", flush=True)
+    with (
+        log_path.open("a", encoding="utf-8") as log_file,
+        connect() as conn,
+        PoliteClient(min_interval_s=args.interval) as archives,
+        PoliteClient(min_interval_s=max(args.interval, 2.0)) as api,
+    ):
+
+        def log(line: str) -> None:
+            print(line, flush=True)
+            log_file.write(line + "\n")
+            log_file.flush()
+
+        try:
+            stats = backfill(conn, lake, archives, api, args.start, end, log=log)
+        except BackfillAborted as exc:
+            log(f"ABORTED: {exc}")
+            return 1
+        log("Done.\n" + stats.summary())
+        for f in stats.failures[:20]:
+            log(f"  failed: {f.source_id} {f.partition_key} {f.message}")
+    return 1 if stats.failures else 0
+
+
+def _calendar_infer(args: argparse.Namespace) -> int:
+    from stockapp.db import connect
+    from stockapp.ingest.calendar import infer_holidays
+
+    with connect() as conn:
+        days = infer_holidays(
+            conn,
+            args.start,
+            args.end or date.today(),
+            price_sources=("nse_legacy_bhavcopy", "nse_udiff_bhavcopy"),
+        )
+    print(
+        f"Recorded {len(days)} inferred holiday(s)"
+        + (f": {', '.join(map(str, days))}" if days else "")
+    )
+    return 0
+
+
+def _universe_build(args: argparse.Namespace) -> int:
+    from stockapp.lake import Lake
+    from stockapp.universe import build_universe
+
+    df = build_universe(Lake.from_settings(), size=get_app_config().universe.size)
+    months = df["month"].n_unique() if df.height else 0
+    print(f"Universe built: {months} month(s), {df.height} membership rows")
+    if df.height:
+        print(f"First month {df['month'].min()}, last {df['month'].max()}")
+    return 0
+
+
+def _coverage(args: argparse.Namespace) -> int:
+    from stockapp.coverage import build_coverage
+    from stockapp.db import connect
+    from stockapp.lake import Lake
+
+    lake = Lake.from_settings()
+    with connect() as conn:
+        result = build_coverage(conn, lake)
+    reports = lake.root.parent / "reports"
+    reports.mkdir(parents=True, exist_ok=True)
+    path = reports / f"coverage_{date.today().isoformat()}.md"
+    path.write_text(result.markdown, encoding="utf-8")
+    lake.write_partition("gold", "coverage_daily", "built", date.today().isoformat(), result.daily)
+    print(result.markdown.split("\n## 1.")[0])
+    print(f"Full report: {path}")
+    return 0 if result.gate_passed else 1
+
+
+def _probe_earliest(args: argparse.Namespace) -> int:
+    from stockapp.db import connect
+    from stockapp.ingest.http import PoliteClient
+    from stockapp.ingest.probe import find_earliest, record_earliest
+    from stockapp.lake import Lake
+
+    with connect() as conn, PoliteClient(min_interval_s=1.5) as http:
+        connector = _connectors()[args.source](conn, Lake.from_settings(), http)
+        result = find_earliest(connector, args.floor, args.known_good)
+        record_earliest(conn, result)
+    print(f"{result.source_id}: {result.earliest} ({result.note}) [{result.requests} requests]")
+    return 0
 
 
 def _calendar_refresh(_: argparse.Namespace) -> int:
@@ -130,7 +242,9 @@ def main(argv: list[str] | None = None) -> int:
     ).set_defaults(func=_db_migrate)
 
     ing = sub.add_parser("ingest", help="fetch, archive, validate and load daily files")
-    ing.add_argument("source", choices=["nse-udiff"])
+    ing.add_argument(
+        "source", choices=["nse-udiff", "nse-legacy", "nse-mto", "nse-index", "nse-corp-actions"]
+    )
     ing.add_argument("--start", type=_parse_day, required=True, help="YYYY-MM-DD")
     ing.add_argument("--end", type=_parse_day, help="YYYY-MM-DD (default: same as --start)")
     ing.add_argument("--force", action="store_true", help="reload even if already loaded")
@@ -138,11 +252,36 @@ def main(argv: list[str] | None = None) -> int:
     ing.add_argument("--interval", type=float, default=1.5, help="seconds between requests")
     ing.set_defaults(func=_ingest)
 
+    bf = sub.add_parser(
+        "backfill", help="resumable NSE history load (prices, delivery, indices, actions)"
+    )
+    bf.add_argument("--start", type=_parse_day, default=date(2016, 1, 1), help="default 2016-01-01")
+    bf.add_argument("--end", type=_parse_day, help="default today")
+    bf.add_argument("--interval", type=float, default=1.0, help="seconds between archive requests")
+    bf.set_defaults(func=_backfill)
+
+    uni = sub.add_parser("universe", help="point-in-time top-500 liquidity universe")
+    uni.add_subparsers(dest="universe_command", required=True).add_parser(
+        "build", help="rebuild monthly membership from silver prices"
+    ).set_defaults(func=_universe_build)
+
+    sub.add_parser("coverage", help="coverage report and the M2 gate").set_defaults(func=_coverage)
+
+    probe = sub.add_parser("probe-earliest", help="binary-search a source's first available date")
+    probe.add_argument("source", choices=["nse-udiff", "nse-legacy", "nse-mto", "nse-index"])
+    probe.add_argument("--floor", type=_parse_day, required=True, help="earliest date to search")
+    probe.add_argument("--known-good", type=_parse_day, required=True, help="a date with a file")
+    probe.set_defaults(func=_probe_earliest)
+
     cal = sub.add_parser("calendar", help="NSE trading calendar")
     cal_sub = cal.add_subparsers(dest="calendar_command", required=True)
     cal_sub.add_parser("refresh", help="load NSE's current holiday list").set_defaults(
         func=_calendar_refresh
     )
+    infer = cal_sub.add_parser("infer", help="record past weekdays with no price file as holidays")
+    infer.add_argument("--start", type=_parse_day, default=date(2016, 1, 1))
+    infer.add_argument("--end", type=_parse_day)
+    infer.set_defaults(func=_calendar_infer)
     show = cal_sub.add_parser("show", help="show why each date is or isn't a trading day")
     show.add_argument("--start", type=_parse_day, required=True)
     show.add_argument("--end", type=_parse_day)

@@ -8,6 +8,7 @@ dependencies = [
     "httpx>=0.27",
     "polars>=1.44.2",
     "psycopg[binary]>=3.3.6",
+    "pyarrow>=25.0.1",
     "pydantic>=2.8",
     "pydantic-settings>=2.4",
     "pyyaml>=6.0",
