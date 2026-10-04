@@ -29,8 +29,20 @@ Neon later) for app state, LightGBM, scikit-learn, Streamlit, pytest, ruff, GitH
 ## Commands
 - `uv sync`: install; `uv run pytest`: tests (live tests skip without env vars)
 - `uv run ruff check . && uv run ruff format --check .`: lint
-- `docker compose up -d db`: local Postgres
+- `docker compose up -d db`: local Postgres; `uv run stockapp migrate`: schema + source registry
+- `uv run stockapp ingest nse-udiff --start YYYY-MM-DD [--end ...]`: fetch, archive, validate, load
+- `uv run stockapp calendar refresh` / `calendar show --start ... --end ...`
 - `uv run stockapp --help`
+
+## Data platform (M1)
+- Lake (`LAKE_URI`, default `data/lake`): `bronze/<source>/<day>/<sha12>_<file>` raw and immutable;
+  `silver/<dataset>/trade_date=<day>/data.parquet` validated, one file per day, replaced on rerun;
+  `gold/` app tables. Silver rows carry `_source_file_id`, `_sha256`, `_ingested_at`,
+  `_pipeline_version` for lineage.
+- New daily source = subclass `ingest.base.DailyFileConnector` (url, header, parse, validate), add it
+  to `ingest/sources.yaml`, record its known header fingerprint. The base class does archiving,
+  manifest, quarantine, watermark, health and job runs.
+- Migrations: add a new numbered file in `migrations/`; never edit an applied one (the runner refuses).
 
 ## Working rules
 - One milestone at a time. Plan first, wait for approval.
@@ -38,7 +50,8 @@ Neon later) for app state, LightGBM, scikit-learn, Streamlit, pytest, ruff, GitH
 - Connectors: test on the live source, save a small real sample in tests/fixtures/private, and test the parser
   on it. If a source can't be reached, say so; don't invent a format.
 - Secrets from environment variables only (.env locally, never committed).
-- The repo is **public**. Never commit market data, holdings, or anything under data/. Real source
+- The repo is **public**. Never commit market data, holdings, personal amounts (budget, portfolio
+  size, goals: those go in the gitignored `config/local.yaml`), or anything under data/. Real source
   samples go in `tests/fixtures/private/` (gitignored); commit only small synthetic fixtures in the
   same format so CI can test parsers without redistributing exchange data.
 - Thresholds, caps and costs live in `config/defaults.yaml`, not code.

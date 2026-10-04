@@ -16,6 +16,9 @@ to a broker.
 uv sync                      # Python 3.12 + dependencies
 cp .env.example .env         # then fill in values (docs/SETUP.md)
 docker compose up -d db      # local Postgres
+uv run stockapp migrate      # create tables, sync the source registry
+uv run stockapp calendar refresh
+uv run stockapp ingest nse-udiff --start 2026-09-29 --end 2026-10-01
 uv run pytest                # tests (live ones skip without secrets)
 uv run stockapp config       # show product config
 uv run stockapp telegram-test
@@ -25,4 +28,5 @@ uv run stockapp telegram-test
 
 | Milestone | State |
 |---|---|
-| M0 Setup | In progress: waiting on Telegram secrets and first CI run |
+| M0 Setup | Done |
+| M1 Data platform | Done: lake, app DB schema, source registry, connector framework, NSE calendar, NSE daily prices (current format) |

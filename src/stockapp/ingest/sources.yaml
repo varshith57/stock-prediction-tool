@@ -1,0 +1,27 @@
+# Source registry seed. `stockapp registry sync` upserts these descriptive fields into the
+# source_registry table; health and earliest_date are owned by the database (set by probes and runs).
+# Add a source here before building its connector. Record facts only; mark anything unverified.
+
+nse_udiff_bhavcopy:
+  name: NSE capital-market bhavcopy (UDiFF format)
+  provides: Daily OHLC, last, previous close, volume, value and trade count for every NSE CM instrument, with ISIN
+  access: Public archive file, one zip per trading day; browser-like headers; HTTP 404 on non-trading days
+  url_template: https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_{yyyymmdd}_F_0000.csv.zip
+  terms_note: >-
+    Personal, non-commercial use; no redistribution (raw and silver data stay private).
+    nseindia.com terms of use not yet reviewed in full: review before scheduled automation (M9).
+    robots.txt checked 2026-10-04: www.nseindia.com allows / except /market-data-test;
+    nsearchives.nseindia.com has no robots.txt.
+  fallback: Legacy NSE bhavcopy (pre-July-2024 format); sec_bhavdata_full; BSE bhavcopy
+  earliest_date_note: UDiFF format replaced the legacy bhavcopy in July 2024; exact first date to be probed in M2
+
+nse_holidays:
+  name: NSE trading holiday list
+  provides: Trading holidays per segment for the current calendar year
+  access: JSON API on www.nseindia.com (holiday-master?type=trading); browser-like headers and a Referer
+  url_template: https://www.nseindia.com/api/holiday-master?type=trading
+  terms_note: >-
+    Personal, non-commercial use. Returns the current year only, and doesn't list weekend special
+    sessions. Past calendars are reconciled against which daily files actually exist.
+  fallback: Infer from daily-file existence (weekday 404 = holiday, recorded as inferred)
+  earliest_date_note: Current year only
