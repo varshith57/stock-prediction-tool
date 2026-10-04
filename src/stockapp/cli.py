@@ -270,6 +270,49 @@ def _quality_build(args: argparse.Namespace) -> int:
     return 0 if gate.passed else 1
 
 
+def _features_build(_: argparse.Namespace) -> int:
+    import polars as pl
+
+    from stockapp.features.pipeline import FEATURE_VERSION, build_weekly_samples
+    from stockapp.lake import Lake
+
+    s = build_weekly_samples(Lake.from_settings(), get_app_config(), date.today())
+    labelled = s.filter(pl.col("label_a").is_not_null() & ~pl.col("blocked"))
+    print(
+        f"weekly samples: {s.height} rows, {s['trade_date'].n_unique()} weeks "
+        f"({s['trade_date'].min()} to {s['trade_date'].max()}), feature version {FEATURE_VERSION}"
+    )
+    print(
+        f"labelled, unblocked: {labelled.height}; blocked: {s['blocked'].sum()}; "
+        f"base rate A {labelled['label_a'].mean():.2%}, C {labelled['label_c'].mean():.2%}"
+    )
+    return 0
+
+
+def _features_check(args: argparse.Namespace) -> int:
+    """Leakage gate on real data: shuffled labels must give AUC about 0.5."""
+    import polars as pl
+
+    from stockapp.features.build import FEATURE_COLUMNS
+    from stockapp.features.checks import holdout_auc, shuffled_label_auc
+    from stockapp.features.pipeline import load_weekly_samples
+    from stockapp.lake import Lake
+
+    s = load_weekly_samples(Lake.from_settings()).filter(~pl.col("blocked"))
+    ok = True
+    for label in ("label_a", "label_c"):
+        real = holdout_auc(s, FEATURE_COLUMNS, label, args.split)
+        shuffled = shuffled_label_auc(s, FEATURE_COLUMNS, label, args.split)
+        passed = abs(shuffled - 0.5) <= 0.02
+        ok &= passed
+        print(
+            f"{label}: holdout AUC {real:.3f} (logistic baseline); shuffled-label AUC "
+            f"{shuffled:.3f} {'OK' if passed else 'FAIL: features encode something besides signal'}"
+        )
+    print(f"M5 leakage gate: {'PASS' if ok else 'FAIL'}")
+    return 0 if ok else 1
+
+
 def _calendar_refresh(_: argparse.Namespace) -> int:
     from stockapp.db import connect
     from stockapp.ingest.calendar import refresh_holidays
@@ -336,6 +379,15 @@ def main(argv: list[str] | None = None) -> int:
     ).set_defaults(func=_universe_build)
 
     sub.add_parser("coverage", help="coverage report and the M2 gate").set_defaults(func=_coverage)
+
+    feat = sub.add_parser("features", help="M5: point-in-time features and labels")
+    feat_sub = feat.add_subparsers(dest="features_command", required=True)
+    feat_sub.add_parser(
+        "build", help="rebuild the weekly sample set (features, labels A/C, blocked flags)"
+    ).set_defaults(func=_features_build)
+    chk = feat_sub.add_parser("check", help="leakage gate: shuffled labels must give AUC ~0.5")
+    chk.add_argument("--split", type=_parse_day, default=date(2022, 1, 1), help="holdout start")
+    chk.set_defaults(func=_features_check)
 
     qual = sub.add_parser("quality", help="M3: company master, adjustments, gates, score")
     qual.add_subparsers(dest="quality_command", required=True).add_parser(

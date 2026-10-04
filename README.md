@@ -36,3 +36,4 @@ uv run stockapp telegram-test
 | M2 History backfill | Done (Gate G1 PASS, 2026-10-04): 2016-01 to 2026-10, 2,521 universe sessions, none below 98% priced, delivery 98-99.9%, index closes every session but one |
 | M3 Quality gates | Done (gate PASS, 2026-10-04): company master (3,628 companies, renames tracked), corporate-action adjustment with 1,015/1,018 events reconciling and 16/16 known large-cap events, quality score >= 95 on 98.6% of sessions |
 | M4 Portfolio | Done: Portfolio screen (holdings at the latest NSE close, gain/loss after Zerodha charges, tax estimate, sector caps), FIFO ledger with automatic bonus/split adjustment, Kite CSV import with preview, password login; totals match a hand calculation within ₹1 |
+| M5 Features | Done (gate PASS): 53 point-in-time features in 10 families, labels A/C per AM2, 265k weekly samples 2016-2026; truncation, random-walk and shuffled-label (AUC 0.50) leakage tests pass |

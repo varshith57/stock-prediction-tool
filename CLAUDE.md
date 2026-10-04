@@ -89,6 +89,15 @@ Neon later) for app state, LightGBM, scikit-learn, Streamlit, pytest, ruff, GitH
 - Holdings are private: never log rows or values, never put them in alerts or the lake.
 - Not yet built: value-vs-Nifty chart (M8), editing a transaction in place (delete + re-add).
 
+## Features (M5)
+- `uv run stockapp features build` (about 16 s, 2.5 GB RAM) -> gold `weekly_samples` (last session
+  of each week x that month's universe), versioned by a hash of the catalogue in
+  `features/build.py`. `uv run stockapp features check` = leakage gate on real data.
+- Features must be scale-free functions of adjusted prices (no absolute adjusted levels: those
+  leak future splits). Windows group by (company_id, segment) so nothing spans a series break.
+  Any new feature needs a catalogue entry and must pass tests/test_m5.py (truncation invariance).
+- Labels: A from the T+1 open, C from the T close, 5-session window, null across breaks/halts.
+
 ## Working rules
 - One milestone at a time. Plan first, wait for approval.
 - Tests with every feature. Run ruff and pytest before saying done.
