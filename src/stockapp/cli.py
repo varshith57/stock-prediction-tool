@@ -313,6 +313,39 @@ def _features_check(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def _models_backtest(_: argparse.Namespace) -> int:
+    from stockapp.lake import Lake
+    from stockapp.models.backtest import summarize
+    from stockapp.models.run import run_backtests
+
+    run = run_backtests(Lake.from_settings(), get_app_config(), date.today())
+    for signal, bt in run.backtests.items():
+        t = {r["score"]: r for r in summarize(bt).iter_rows(named=True)}
+        auc = {k: t[k]["auc"] for k in ("model", "volatility", "logistic")}
+        top5 = {k: t[k]["top5_precision"] for k in ("model", "volatility", "base_rate")}
+        print(
+            f"signal {signal}: model AUC {auc['model']:.3f} (volatility {auc['volatility']:.3f}, "
+            f"logistic {auc['logistic']:.3f}); top-5 precision {top5['model']:.1%} "
+            f"(volatility {top5['volatility']:.1%}, base {top5['base_rate']:.1%})"
+        )
+        g = run.gates[signal]
+        print(f"  gate {g.status}: {g.reason}")
+    print(f"report: {run.report_path}")
+    return 0
+
+
+def _models_train(_: argparse.Namespace) -> int:
+    from stockapp.lake import Lake
+    from stockapp.models.run import train_and_score
+
+    scores = train_and_score(Lake.from_settings(), get_app_config(), date.today())
+    print(
+        f"scored {scores.height} universe members for week ending {scores['trade_date'][0]} "
+        f"(model {scores['model_version'][0]})"
+    )
+    return 0
+
+
 def _calendar_refresh(_: argparse.Namespace) -> int:
     from stockapp.db import connect
     from stockapp.ingest.calendar import refresh_holidays
@@ -379,6 +412,15 @@ def main(argv: list[str] | None = None) -> int:
     ).set_defaults(func=_universe_build)
 
     sub.add_parser("coverage", help="coverage report and the M2 gate").set_defaults(func=_coverage)
+
+    mod = sub.add_parser("models", help="M6-M7: walk-forward backtest, gate, final models")
+    mod_sub = mod.add_subparsers(dest="models_command", required=True)
+    mod_sub.add_parser(
+        "backtest", help="walk-forward A and C, baselines, gate, report"
+    ).set_defaults(func=_models_backtest)
+    mod_sub.add_parser("train", help="fit final models and score the latest week").set_defaults(
+        func=_models_train
+    )
 
     feat = sub.add_parser("features", help="M5: point-in-time features and labels")
     feat_sub = feat.add_subparsers(dest="features_command", required=True)

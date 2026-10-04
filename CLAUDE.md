@@ -98,6 +98,14 @@ Neon later) for app state, LightGBM, scikit-learn, Streamlit, pytest, ruff, GitH
   Any new feature needs a catalogue entry and must pass tests/test_m5.py (truncation invariance).
 - Labels: A from the T+1 open, C from the T close, 5-session window, null across breaks/halts.
 
+## Models and gate (M6-M7)
+- `uv run stockapp models backtest` (~7 min): walk-forward A/C + baselines -> gold
+  `oos_predictions`, `signal_gate`; report in data/reports/. `uv run stockapp models train`:
+  final models in data/models/ and gold `latest_scores` for the newest week.
+- The gate (`models/gate.py`) uses out-of-sample predictions only, counts only what would be shown
+  (A: 5/week by expected gain), and never lowers the bar. Both signals are OFF as of 2026-10-04;
+  see docs/MODEL_CARD.md for numbers and known limits (overconfident tails).
+
 ## Working rules
 - One milestone at a time. Plan first, wait for approval.
 - Tests with every feature. Run ruff and pytest before saying done.

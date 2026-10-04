@@ -45,4 +45,5 @@ pythonpath = ["tests"]
 addopts = "-ra --strict-markers"
 markers = [
     "live: hits a real external service; skipped unless the needed env vars are set",
+    "slow: trains models on synthetic data (tens of seconds)",
 ]

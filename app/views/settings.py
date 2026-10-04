@@ -4,8 +4,18 @@ page, so the numbers can be checked."""
 
 from __future__ import annotations
 
+import polars as pl
 import streamlit as st
-from views.common import cfg, inr
+from views.common import cfg, inr, lake
+
+
+@st.cache_data(ttl=600)
+def _gate() -> pl.DataFrame:
+    lk = lake()
+    if not lk.has_table("gold", "signal_gate"):
+        return pl.DataFrame()
+    g = lk.scan("gold", "signal_gate").collect()
+    return g.filter(pl.col("built") == pl.col("built").max())
 
 
 def render() -> None:
@@ -27,6 +37,23 @@ def render() -> None:
         f"certainty bar {c.signals.certainty_bar:.0%} · at most {c.signals.max_opportunities} "
         "opportunities a week"
     )
+    st.subheader("Signal status (validated walk-forward, out of sample)")
+    gate = _gate()
+    if gate.is_empty():
+        st.info("No validation run yet: `uv run stockapp models backtest`.")
+    for r in gate.iter_rows(named=True):
+        name = {"A": "A. Opportunity (+10%)", "C": "C. Crash exit (-10%)"}.get(
+            r["signal"], r["signal"]
+        )
+        if r["status"] == "LIVE":
+            st.success(f"**{name}: LIVE** at {r['cutoff']:.0%}+. {r['reason']}")
+        else:
+            st.warning(f"**{name}: OFF.** The model cannot yet meet the 90% bar: {r['reason']}")
+    if not gate.is_empty():
+        st.caption(
+            f"Evaluated {gate['evaluated_at'][0]:%d %b %Y} on every walk-forward prediction since "
+            "2018. The bar is never lowered automatically."
+        )
     st.subheader("Zerodha charges (delivery)")
     k = c.costs
     st.write(
