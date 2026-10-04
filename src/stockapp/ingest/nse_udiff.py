@@ -18,12 +18,18 @@ from stockapp.ingest.base import DailyFileConnector, Issue, header_fingerprint
 from stockapp.ingest.calendar import record_session
 from stockapp.ingest.prices import validate_price_frame
 
-# Header of the format seen on 2026-10-01. A different header fails the run as format_changed.
+# Header seen on 2026-10-01. Files from 2024-01-01 to at least 2024-06-20 use V0: reserved
+# columns named Rsvd01..Rsvd04 and a trailing comma (unused columns, same data). Any other header
+# fails the run as format_changed.
 UDIFF_HEADER_V1 = (
     "TradDt,BizDt,Sgmt,Src,FinInstrmTp,FinInstrmId,ISIN,TckrSymb,SctySrs,XpryDt,"
     "FininstrmActlXpryDt,StrkPric,OptnTp,FinInstrmNm,OpnPric,HghPric,LwPric,ClsPric,LastPric,"
     "PrvsClsgPric,UndrlygPric,SttlmPric,OpnIntrst,ChngInOpnIntrst,TtlTradgVol,TtlTrfVal,"
     "TtlNbOfTxsExctd,SsnId,NewBrdLotQty,Rmks,Rsvd1,Rsvd2,Rsvd3,Rsvd4"
+)
+
+UDIFF_HEADER_V0 = (
+    UDIFF_HEADER_V1.replace("Rsvd1,Rsvd2,Rsvd3,Rsvd4", "Rsvd01,Rsvd02,Rsvd03,Rsvd04") + ","
 )
 
 # source column -> (silver column, type)
@@ -54,7 +60,9 @@ class NseUdiffBhavcopy(DailyFileConnector):
     source_id = "nse_udiff_bhavcopy"
     dataset = "nse_cm_bhavcopy"
     min_rows: ClassVar[int] = 1000  # a real day has about 3,700 rows; far fewer = truncated file
-    known_fingerprints: ClassVar[frozenset[str]] = frozenset({header_fingerprint(UDIFF_HEADER_V1)})
+    known_fingerprints: ClassVar[frozenset[str]] = frozenset(
+        {header_fingerprint(UDIFF_HEADER_V0), header_fingerprint(UDIFF_HEADER_V1)}
+    )
 
     def url_for(self, day: date) -> str:
         return (

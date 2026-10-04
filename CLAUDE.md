@@ -56,6 +56,13 @@ Neon later) for app state, LightGBM, scikit-learn, Streamlit, pytest, ruff, GitH
   parsed in M3). NSE's JSON API needs a cookie-keeping client and sometimes returns empty 200s.
 - Universe: `universe.build_universe` -> silver `universe_top500` (AM3), point-in-time per month.
 - Values are rupees (turnover too), not lakhs, except index `turnover_cr` (crores).
+- Known NSE format variants are handled and tested (see module docstrings): MTO "rade Date" typo,
+  re-published legacy files (no trailing comma, 2-digit year, nested zip path), UDiFF 2024-H1
+  header (Rsvd01.., trailing comma), month-first dates in some index files. Add new variants the
+  same way: inspect the raw file, add a fingerprint or rule, add a synthetic test.
+- Known source gaps: no NSE index file for 2016-06-20 (404 at source). Corporate actions are not
+  yet adjusted into prices (M3). Total-return indices not available yet.
+- Universe and coverage: `uv run stockapp universe build` then `uv run stockapp coverage`.
 
 ## Working rules
 - One milestone at a time. Plan first, wait for approval.

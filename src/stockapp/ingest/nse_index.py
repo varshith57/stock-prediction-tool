@@ -4,6 +4,10 @@ India VIX. Price indices only; total-return indices are not in this file.
 Quirk: some files list an index twice (seen for Nifty 50 on 2016-01-04). Identical duplicates are
 dropped. Differing duplicates block the file for Nifty 50/500; for other indices both rows are kept
 and flagged (WARN), since nothing downstream uses them yet.
+
+Quirk: a few files write dates month-first ("04-06-2023" in the file for 6 April 2023). The file is
+fetched by date, so the month-first reading is used only when it equals the requested day and the
+day-first reading doesn't; otherwise the day-first date stands and validation blocks a mismatch.
 """
 
 from __future__ import annotations
@@ -64,12 +68,16 @@ class NseIndexClose(DailyFileConnector):
             for src, dst in COLUMNS.items()
             if dst != "index_name"
         ]
+        raw_date = pl.col("Index Date").str.strip_chars()
+        day_first = raw.select(raw_date.str.to_date("%d-%m-%Y", strict=False)).to_series()
+        month_first = raw.select(raw_date.str.to_date("%m-%d-%Y", strict=False)).to_series()
+        use_month_first = day_first.unique().to_list() != [
+            day
+        ] and month_first.unique().to_list() == [day]
+        fmt = "%m-%d-%Y" if use_month_first else "%d-%m-%Y"
         return raw.select(
             pl.col("Index Name").str.strip_chars().alias("index_name"),
-            pl.col("Index Date")
-            .str.strip_chars()
-            .str.to_date("%d-%m-%Y", strict=True)
-            .alias("trade_date"),
+            raw_date.str.to_date(fmt, strict=True).alias("trade_date"),
             *numeric,
         ).unique(maintain_order=True)
 

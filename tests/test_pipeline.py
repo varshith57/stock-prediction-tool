@@ -179,3 +179,16 @@ def test_silver_lineage_columns_are_typed(connector: Small, lake: Lake, udiff_cs
     schema = lake.scan("silver", "nse_cm_bhavcopy").collect_schema()
     assert schema["_source_file_id"] == pl.Int64
     assert schema["_ingested_at"].time_zone == "UTC"
+
+
+@respx.mock
+def test_clean_reload_resolves_earlier_blocks(connector: Small, db, udiff_csv):
+    route = respx.get(connector.url_for(DAY))
+    route.mock(
+        return_value=httpx.Response(200, content=zip_csv(udiff_csv.replace("TtlTrfVal", "X", 1)))
+    )
+    connector.run(DAY)
+    route.mock(return_value=httpx.Response(200, content=zip_csv(udiff_csv)))
+    assert connector.run(DAY).status == "success"
+    q = _one(db, "SELECT resolved_at, resolution FROM quarantine")
+    assert q["resolved_at"] is not None and "reloaded successfully" in q["resolution"]

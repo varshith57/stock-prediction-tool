@@ -20,7 +20,8 @@ MTO_HEADER_V1 = (
     "Deliverable Quantity(gross across client level),"
     "% of Deliverable Quantity to Traded Quantity"
 )
-_TRADE_DATE = re.compile(r"Trade Date <(\d{2}-[A-Za-z]{3}-\d{4})>")
+# Some NSE files really read "rade Date" (first letter missing in the source, e.g. 2017-03-30).
+_TRADE_DATE = re.compile(r"T?rade Date <(\d{2}-[A-Za-z]{3}-\d{4})>")
 _HEADER_LINE = 3  # zero-based index of the header line
 
 

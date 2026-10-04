@@ -68,4 +68,4 @@ nse_corporate_actions:
     Personal, non-commercial use; no redistribution. No publication timestamp in the payload
     (caBroadcastDate always empty so far).
   fallback: BSE corporate actions; exchange announcement archives
-  earliest_date_note: Probed 2026-10-04 2016 returns 2,106 actions (25 bonuses, 23 splits); earlier not searched.
+  earliest_date_note: Spot-checked 2026-10-04 Aug 2000 returns 87 actions (2016 full year 2,106 incl. 25 bonuses, 23 splits); earlier not checked.

@@ -179,6 +179,7 @@ class DailyFileConnector(ABC):
         )
         self.lake.write_partition("silver", self.dataset, self.partition_col, key, df)
         reg.set_source_file_status(self.conn, file_id, "loaded")
+        reg.resolve_blocks(self.conn, self.source_id, key, job_id)
         reg.advance_watermark(self.conn, self.source_id, key)
         reg.record_success(self.conn, self.source_id)
         self.on_loaded(day, df)

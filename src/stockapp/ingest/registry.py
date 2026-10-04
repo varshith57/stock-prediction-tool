@@ -201,6 +201,20 @@ def quarantine(
     )
 
 
+def resolve_blocks(
+    conn: psycopg.Connection, source_id: str, partition_key: str, job_run_id: int
+) -> int:
+    """Close earlier BLOCK items for a partition that has now loaded cleanly. WARNs stay open."""
+    cur = conn.execute(
+        """UPDATE quarantine SET resolved_at = now(),
+               resolution = 'partition reloaded successfully by job ' || %s
+           WHERE source_id = %s AND partition_key = %s AND severity = 'BLOCK'
+             AND resolved_at IS NULL""",
+        (job_run_id, source_id, partition_key),
+    )
+    return cur.rowcount
+
+
 def advance_watermark(conn: psycopg.Connection, source_id: str, key: str) -> None:
     """Move the watermark forward only (ISO dates sort correctly as text)."""
     conn.execute(
