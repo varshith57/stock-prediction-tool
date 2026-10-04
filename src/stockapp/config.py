@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     r2_account_id: str | None = None
     r2_access_key_id: SecretStr | None = None
     r2_secret_access_key: SecretStr | None = None
+    app_password_hash: SecretStr | None = None  # set with: uv run stockapp set-password
 
     @property
     def telegram_configured(self) -> bool:
@@ -90,6 +91,7 @@ class CostsConfig(_Strict):
     stt_rate: float = Field(ge=0)
     stamp_duty_buy_rate: float = Field(ge=0)
     exchange_txn_rate: float = Field(ge=0)
+    sebi_fee_rate: float = Field(ge=0)
     dp_charge_per_scrip_sell_inr: float = Field(ge=0)
     gst_rate: float = Field(ge=0)
     slippage_bps: float = Field(ge=0)

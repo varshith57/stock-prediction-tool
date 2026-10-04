@@ -90,3 +90,14 @@ nse_equity_list:
     history comes from the daily price files.
   fallback: ISIN and names from the daily price files
   earliest_date_note: Current snapshot only (first fetched 2026-10-04).
+
+nse_sector_list:
+  name: Nifty Total Market constituents with industry
+  provides: About 750 NSE stocks (Nifty 500 + microcaps) with NSE's 22-sector industry classification
+  access: Public archive CSV, fetched as a dated snapshot; browser-like headers
+  url_template: https://nsearchives.nseindia.com/content/indices/ind_niftytotalmarket_list.csv
+  terms_note: >-
+    Personal, non-commercial use; no redistribution. Current constituents only; sector history is
+    not available from this file.
+  fallback: ind_nifty500list.csv (same columns, 500 stocks)
+  earliest_date_note: Current snapshot only (first fetched 2026-10-04).

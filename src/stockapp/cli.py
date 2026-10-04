@@ -41,6 +41,25 @@ def _telegram_test(_: argparse.Namespace) -> int:
     return 0
 
 
+def _set_password(_: argparse.Namespace) -> int:
+    import getpass
+
+    from stockapp.auth import hash_password
+
+    first = getpass.getpass("New app password (10+ characters): ")
+    if first != getpass.getpass("Repeat: "):
+        print("Passwords don't match.", file=sys.stderr)
+        return 1
+    try:
+        hashed = hash_password(first)
+    except ValueError as exc:
+        print(f"Not set: {exc}", file=sys.stderr)
+        return 1
+    print("\nAdd this line to .env (and to Streamlit secrets when deploying):\n")
+    print(f"APP_PASSWORD_HASH={hashed}")
+    return 0
+
+
 def _config_show(_: argparse.Namespace) -> int:
     print(get_app_config().model_dump_json(indent=2))
     s = get_settings()
@@ -69,12 +88,13 @@ def _connectors() -> dict:
     from stockapp.ingest.nse_index import NseIndexClose
     from stockapp.ingest.nse_legacy import NseLegacyBhavcopy
     from stockapp.ingest.nse_mto import NseMtoDelivery
-    from stockapp.ingest.nse_reference import NseEquityList, NseSymbolChanges
+    from stockapp.ingest.nse_reference import NseEquityList, NseSectorList, NseSymbolChanges
     from stockapp.ingest.nse_udiff import NseUdiffBhavcopy
 
     return {
         "nse-symbol-changes": NseSymbolChanges,
         "nse-equity-list": NseEquityList,
+        "nse-sector-list": NseSectorList,
         "nse-udiff": NseUdiffBhavcopy,
         "nse-legacy": NseLegacyBhavcopy,
         "nse-mto": NseMtoDelivery,
@@ -239,7 +259,11 @@ def _quality_build(args: argparse.Namespace) -> int:
         f"quality score: {q.height} sessions, mean {q['score'].mean():.2f}, "
         f"min {q['score'].min():.2f}, below 95: {low}, latest {q['score'][-1]:.2f}"
     )
+    from stockapp.portfolio.valuation import build_latest_prices
     from stockapp.quality.gate import evaluate_m3_gate
+
+    lp = build_latest_prices(lake, today)
+    print(f"latest prices (gold): {lp.height} companies, data as of {lp['data_as_of'].max()}")
 
     gate = evaluate_m3_gate(lake, q)
     print("\n".join(gate.lines))
@@ -288,7 +312,7 @@ def main(argv: list[str] | None = None) -> int:
         "source",
         choices=[
             "nse-udiff", "nse-legacy", "nse-mto", "nse-index", "nse-corp-actions",
-            "nse-symbol-changes", "nse-equity-list",
+            "nse-symbol-changes", "nse-equity-list", "nse-sector-list",
         ],
     )  # fmt: skip
     ing.add_argument("--start", type=_parse_day, required=True, help="YYYY-MM-DD")
@@ -344,6 +368,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser(
         "telegram-chat-id", help="print your chat ID (after you message the bot once)"
     ).set_defaults(func=_telegram_chat_id)
+    sub.add_parser("set-password", help="create the app login password hash").set_defaults(
+        func=_set_password
+    )
     sub.add_parser("config", help="print product config and environment wiring").set_defaults(
         func=_config_show
     )

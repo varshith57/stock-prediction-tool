@@ -78,6 +78,17 @@ Neon later) for app state, LightGBM, scikit-learn, Streamlit, pytest, ruff, GitH
 - BLOCK flags (silver `price_quality_flags`, date ranges) exclude a company from signals for the
   covered dates: unreconciled adjustments, possible missing actions, unparsed price actions, OHLC.
 
+## App and portfolio (M4)
+- `uv run streamlit run app/streamlit_app.py`; screens in `app/views/`. Login needs
+  `APP_PASSWORD_HASH` (from `uv run stockapp set-password`); the app refuses to start without it.
+- The app reads small gold tables only (`latest_prices`, `quality_daily`), never full history.
+  `quality build` refreshes them.
+- Portfolio = `portfolio_transactions` in Postgres -> `portfolio.ledger` (FIFO lots, bonus/split
+  quantity events) -> `portfolio.valuation`. Every add/delete replays the ledger first
+  (`portfolio.service`), so impossible states are refused. Charges/tax: `portfolio.costs`.
+- Holdings are private: never log rows or values, never put them in alerts or the lake.
+- Not yet built: value-vs-Nifty chart (M8), editing a transaction in place (delete + re-add).
+
 ## Working rules
 - One milestone at a time. Plan first, wait for approval.
 - Tests with every feature. Run ruff and pytest before saying done.

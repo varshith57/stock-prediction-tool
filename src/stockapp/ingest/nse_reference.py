@@ -124,3 +124,51 @@ class NseEquityList(DailyFileConnector):
         if nulls:
             issues.append(Issue("BLOCK", "required_nulls", nulls))
         return issues
+
+
+SECTOR_LIST_HEADER = "Company Name,Industry,Symbol,Series,ISIN Code"
+
+
+class NseSectorList(DailyFileConnector):
+    """Nifty Total Market constituents (about 750 stocks: Nifty 500 plus microcaps) with NSE's
+    industry classification (22 macro sectors). Current snapshot only; used for sector weights and
+    caps. Stocks outside the list are 'Unclassified'."""
+
+    source_id = "nse_sector_list"
+    dataset = "nse_sector_list"
+    partition_col = "snapshot_date"
+    min_rows: ClassVar[int] = 600
+    known_fingerprints: ClassVar[frozenset[str]] = frozenset(
+        {header_fingerprint(SECTOR_LIST_HEADER)}
+    )
+
+    def url_for(self, day: date) -> str:
+        return "https://nsearchives.nseindia.com/content/indices/ind_niftytotalmarket_list.csv"
+
+    def filename_for(self, day: date) -> str:
+        return "ind_niftytotalmarket_list.csv"
+
+    def extract_header(self, content: bytes) -> str:
+        return content.decode("latin-1").splitlines()[0]
+
+    def parse(self, content: bytes, day: date) -> pl.DataFrame:
+        raw = pl.read_csv(io.BytesIO(content), infer_schema=False, encoding="latin1")
+        return raw.select(
+            pl.col("Symbol").str.strip_chars().alias("symbol"),
+            pl.col("Company Name").str.strip_chars().alias("company"),
+            pl.col("Industry").str.strip_chars().alias("sector"),
+            pl.col("Series").str.strip_chars().alias("series"),
+            pl.col("ISIN Code").str.strip_chars().alias("isin"),
+            pl.lit(day).alias("snapshot_date"),
+        )
+
+    def validate(self, df: pl.DataFrame, day: date) -> list[Issue]:
+        issues: list[Issue] = []
+        if df.height < self.min_rows:
+            issues.append(Issue("BLOCK", "too_few_rows", {"rows": df.height, "min": self.min_rows}))
+        nulls = {c: n for c in ("symbol", "sector", "isin") if (n := df[c].null_count())}
+        if nulls:
+            issues.append(Issue("BLOCK", "required_nulls", nulls))
+        if df.group_by("symbol").len().filter(pl.col("len") > 1).height:
+            issues.append(Issue("BLOCK", "duplicate_symbols", {}))
+        return issues

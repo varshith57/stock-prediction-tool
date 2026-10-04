@@ -19,6 +19,9 @@ docker compose up -d db      # local Postgres
 uv run stockapp migrate      # create tables, sync the source registry
 uv run stockapp calendar refresh
 uv run stockapp ingest nse-udiff --start 2026-09-29 --end 2026-10-01
+uv run stockapp quality build    # company master, adjustments, universe, quality, app tables
+uv run stockapp set-password     # then put the printed APP_PASSWORD_HASH line in .env
+uv run streamlit run app/streamlit_app.py
 uv run pytest                # tests (live ones skip without secrets)
 uv run stockapp config       # show product config
 uv run stockapp telegram-test
@@ -32,3 +35,4 @@ uv run stockapp telegram-test
 | M1 Data platform | Done: lake, app DB schema, source registry, connector framework, NSE calendar, NSE daily prices (current format) |
 | M2 History backfill | Done (Gate G1 PASS, 2026-10-04): 2016-01 to 2026-10, 2,521 universe sessions, none below 98% priced, delivery 98-99.9%, index closes every session but one |
 | M3 Quality gates | Done (gate PASS, 2026-10-04): company master (3,628 companies, renames tracked), corporate-action adjustment with 1,015/1,018 events reconciling and 16/16 known large-cap events, quality score >= 95 on 98.6% of sessions |
+| M4 Portfolio | Done: Portfolio screen (holdings at the latest NSE close, gain/loss after Zerodha charges, tax estimate, sector caps), FIFO ledger with automatic bonus/split adjustment, Kite CSV import with preview, password login; totals match a hand calculation within ₹1 |

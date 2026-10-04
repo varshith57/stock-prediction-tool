@@ -36,13 +36,14 @@ data:
   history_start: "2016-01-01"       # AM4
   min_quality_score: 90
 
-costs:                              # Zerodha equity delivery; confirm periodically
+costs:                              # Zerodha equity delivery (PRD, checked 2026-10-02; confirm)
   brokerage: 0.0
   stt_rate: 0.001                   # each side
   stamp_duty_buy_rate: 0.00015
   exchange_txn_rate: 0.0000307      # NSE
-  dp_charge_per_scrip_sell_inr: 15.34
-  gst_rate: 0.18                    # on exchange charges and DP fee
+  sebi_fee_rate: 0.000001           # Rs 10 per crore
+  dp_charge_per_scrip_sell_inr: 15.34  # per stock sold per day, GST included
+  gst_rate: 0.18                    # on brokerage + exchange charges + SEBI fee
   slippage_bps: 15
 
 tax:                                # indicative only

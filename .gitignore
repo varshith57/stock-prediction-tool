@@ -26,3 +26,4 @@ dist/
 
 # source docs (originals kept locally; markdown copies live in docs/)
 *.docx
+.claude/
