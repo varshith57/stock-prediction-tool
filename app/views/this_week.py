@@ -149,6 +149,8 @@ def _sell(plan: dict, plan_id: int, logged: dict, watch: list[dict], drop: str) 
         with st.container(border=True):
             if e.get("rule"):
                 tag, why = RULE_NAMES.get(e["rule"], "Rule"), e["reason"]
+            elif e.get("safety"):
+                tag, why = "Drop warning", f"{e['headline']}. {e['reason']}."
             else:
                 tag, why = f"{e['probability']:.0%} drop risk", f"Likely to fall {drop}"
             _card(e["symbol"], tag, "red", [why, _mine(e)])

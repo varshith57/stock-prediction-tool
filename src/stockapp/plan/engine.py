@@ -84,6 +84,7 @@ class PlanItem:
     return_pct: float | None = None  # holdings: gain so far vs cost per share
     value: float | None = None  # holdings: quantity x last close
     review: bool = False  # investments past the review line: a nudge, not a sell
+    safety: bool = False  # a monthly drop warning (models.safety), not a rule
     style: str | None = None  # holdings: "trade" or "investment"
 
     @property
@@ -147,6 +148,8 @@ def build_plan(
     budget_available: float,
     portfolio_value: float = 0.0,
     model_version: str | None = None,
+    safety: dict[str, float] | None = None,  # company_id -> chance of the monthly drop
+    safety_gate: SignalGate | None = None,
 ) -> Plan:
     plan = Plan(
         signal_date,
@@ -175,6 +178,12 @@ def build_plan(
     gate_a, gate_c = gates.get("A"), gates.get("C")
     a_live = gate_a is not None and gate_a.status == "LIVE" and gate_a.cutoff is not None
     c_live = gate_c is not None and gate_c.status == "LIVE" and gate_c.cutoff is not None
+    safety_live = (
+        cfg.safety.enabled
+        and safety_gate is not None
+        and safety_gate.status == "LIVE"
+        and safety_gate.cutoff is not None
+    )
 
     # exits and holds -------------------------------------------------------------------------
     for h in holdings:
@@ -197,6 +206,25 @@ def build_plan(
                     f"{level}: exit rule hit ({r.rule.replace('_', ' ')})",
                     "; ".join(x.message for x in hits),
                     rule=r.rule,
+                    **mine,
+                )
+            )
+        elif (
+            safety_live
+            and (p_drop := (safety or {}).get(h.company_id)) is not None
+            and p_drop >= safety_gate.cutoff  # type: ignore[union-attr,operator]
+        ):
+            plan.exits.append(
+                PlanItem(
+                    "SELL",
+                    h.company_id,
+                    h.symbol,
+                    f"Drop warning: {p_drop:.0%} chance of falling "
+                    f"{cfg.safety.drop:.0%}+ {horizon(cfg.safety.window)}",
+                    f"Warnings like this were {safety_gate.reason}. Consider selling or "  # type: ignore[union-attr]
+                    "trimming to cut risk",
+                    probability=p_drop,
+                    safety=True,
                     **mine,
                 )
             )
@@ -234,7 +262,7 @@ def build_plan(
             )
     plan.exits.sort(
         key=lambda i: (
-            RULE_PRIORITY.get(i.rule, 9) if i.rule else 10,
+            RULE_PRIORITY.get(i.rule, 9) if i.rule else (10 if i.safety else 11),
             -(i.probability or 0.0),
             i.return_pct if i.return_pct is not None else 0.0,
         )

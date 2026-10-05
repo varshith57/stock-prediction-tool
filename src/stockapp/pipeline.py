@@ -93,6 +93,7 @@ def build_weekly_plan(conn: psycopg.Connection, lake: Lake, cfg: AppConfig, toda
     scores = lake.scan("gold", "latest_scores").collect()
     signal_date = scores["trade_date"].max()
     cands, market, model_version = inputs.candidates(lake, signal_date)
+    safety_scores, safety_gate = inputs.safety(lake, signal_date)
     states, weights, dd, budget = inputs.holdings(conn, lake, cfg, today)
     value = service.load(conn, lake, cfg, today).view.totals["value"]
     plan = build_plan(
@@ -109,6 +110,8 @@ def build_weekly_plan(conn: psycopg.Connection, lake: Lake, cfg: AppConfig, toda
         budget_available=budget,
         portfolio_value=value,
         model_version=model_version,
+        safety=safety_scores,
+        safety_gate=safety_gate,
     )
     from stockapp.settings_store import latest
 

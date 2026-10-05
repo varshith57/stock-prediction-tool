@@ -140,6 +140,20 @@ class TaxConfig(_Strict):
     ltcg_exemption_inr: float = Field(ge=0)
 
 
+class SafetyConfig(_Strict):
+    """Monthly drop warnings for holdings (``models.safety``): a warning that passes its test can
+    put a holding in Sell as "consider trimming". Never used to pick new stocks."""
+
+    enabled: bool = True
+    drop: float = Field(default=0.05, gt=0, lt=1)
+    window: int = Field(default=20, ge=1)
+    bar: float = Field(default=0.80, gt=0, lt=1)
+    min_signals: int = Field(default=30, ge=1)
+    min_lower_bound: float = Field(default=0.70, gt=0, lt=1)
+    dedupe_days: int = Field(default=28, ge=1)
+    model: Literal["lightgbm", "ensemble"] = "ensemble"
+
+
 class PaperConfig(_Strict):
     """Paper trading: the live picks traded with pretend money (``stockapp.paper``)."""
 
@@ -175,6 +189,7 @@ class AppConfig(_Strict):
     schedule: ScheduleConfig
     goal: GoalConfig = GoalConfig()
     paper: PaperConfig = PaperConfig()
+    safety: SafetyConfig = SafetyConfig()
 
 
 def load_app_config(

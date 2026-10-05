@@ -218,3 +218,12 @@ def quality_for(lake: Lake, signal_date: date) -> float | None:
     q = lake.scan("gold", "quality_daily").collect()
     q = q.filter((pl.col("built") == pl.col("built").max()) & (pl.col("trade_date") == signal_date))
     return None if q.is_empty() else float(q["score"][0])
+
+
+def safety(lake: Lake, signal_date: date) -> tuple[dict[str, float], SignalGate | None]:
+    """This week's monthly drop warnings for holdings and their test verdict."""
+    from stockapp.models.safety import latest_safety
+
+    scores, g = latest_safety(lake, signal_date)
+    gate = SignalGate(g["status"], g["cutoff"], g["reason"]) if g else None
+    return scores, gate

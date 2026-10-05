@@ -78,3 +78,13 @@ goal:
 paper:                              # live picks traded with pretend money (Track record)
   cutoff: 0.20
   start_inr: 100000
+
+safety:                             # monthly drop warnings for holdings (never to pick stocks)
+  enabled: true
+  drop: 0.05                        # warn of a 5%+ fall...
+  window: 20                        # ...within 20 market days
+  bar: 0.80                         # right at least 80% of the time
+  min_signals: 30                   # on 30+ separate warnings (one per stock per 28 days)
+  min_lower_bound: 0.70             # with a 95% worst case of at least 70%
+  dedupe_days: 28
+  model: ensemble                   # the group of 5 did best at this horizon

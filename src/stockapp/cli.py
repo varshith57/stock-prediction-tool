@@ -369,6 +369,20 @@ def _models_money(_: argparse.Namespace) -> int:
     return 0
 
 
+def _safety_build(_: argparse.Namespace) -> int:
+    from datetime import datetime
+
+    from stockapp.lake import Lake
+    from stockapp.models.safety import build_safety
+
+    def progress(i, n, fold):
+        print(f"[{datetime.now():%H:%M}] quarter {i}/{n} ({fold.test_start})", flush=True)
+
+    gate = build_safety(Lake.from_settings(), get_app_config(), date.today(), on_fold=progress)
+    print(f"safety net {gate.status}: {gate.reason}")
+    return 0
+
+
 def _models_train(_: argparse.Namespace) -> int:
     from stockapp.lake import Lake
     from stockapp.models.run import train_and_score
@@ -400,37 +414,13 @@ def plan_summary(plan) -> str:
 
 
 def _plan_build(args: argparse.Namespace) -> int:
+    from stockapp import pipeline
     from stockapp.db import connect
-    from stockapp.features.pipeline import FEATURE_VERSION
     from stockapp.lake import Lake
-    from stockapp.plan import inputs
-    from stockapp.plan.engine import build_plan
-    from stockapp.plan.store import save_plan
-    from stockapp.portfolio import service
 
     lake, cfg, today = Lake.from_settings(), get_app_config(), date.today()
-    scores = lake.scan("gold", "latest_scores").collect()
-    signal_date = scores["trade_date"].max()
-    cands, market, model_version = inputs.candidates(lake, signal_date)
     with connect() as conn:
-        states, weights, dd, budget = inputs.holdings(conn, lake, cfg, today)
-        portfolio_value = service.load(conn, lake, cfg, today).view.totals["value"]
-        plan = build_plan(
-            cfg=cfg,
-            signal_date=signal_date,
-            week_of=inputs.next_monday(signal_date),
-            quality_score=inputs.quality_for(lake, signal_date),
-            candidates=cands,
-            holdings=states,
-            holding_weights=weights,
-            gates=inputs.gates(lake, cfg),
-            regime=inputs.regime(market, cfg),
-            drawdown=dd,
-            budget_available=budget,
-            portfolio_value=portfolio_value,
-            model_version=model_version,
-        )
-        plan_id = save_plan(conn, plan, FEATURE_VERSION)
+        plan, plan_id = pipeline.build_weekly_plan(conn, lake, cfg, today)
     text = plan_summary(plan)
     print(f"plan {plan_id}: {text}")
     if args.notify:
@@ -627,6 +617,11 @@ def main(argv: list[str] | None = None) -> int:
     mod_sub.add_parser("train", help="fit final models and score the latest week").set_defaults(
         func=_models_train
     )
+
+    sf = sub.add_parser("safety", help="monthly drop warnings for holdings")
+    sf.add_subparsers(dest="safety_command", required=True).add_parser(
+        "build", help="test, train and score the safety net (~40 min with the group of models)"
+    ).set_defaults(func=_safety_build)
 
     pl_ = sub.add_parser("plan", help="M8: weekly plan")
     pb = pl_.add_subparsers(dest="plan_command", required=True).add_parser(

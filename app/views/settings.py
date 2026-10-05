@@ -35,6 +35,8 @@ LABELS = {
     "signals.max_opportunities": "Buy ideas a week",
     "signals.model": "Prediction model",
     "signals.qualify": "When a buy idea counts",
+    "safety.enabled": "Use drop warnings",
+    "safety.bar": "Warnings must be right at least",
     "signals.gate.min_signals": "Past calls needed as proof",
     "signals.gate.min_wilson_lower_bound": "Worst-case accuracy needed",
     "risk.max_stock_weight": "Most in one stock",
@@ -66,6 +68,7 @@ LABELS = {
 # Stored as fractions, shown as percentages.
 PERCENT_KEYS = {
     "budget.satellite_share",
+    "safety.bar",
     "signals.gain_threshold",
     "signals.crash_threshold",
     "signals.certainty_bar",
@@ -354,6 +357,27 @@ def _set_once(c: AppConfig, v: dict) -> bool:
                 "past year and the market is falling.",
             )
 
+        with st.expander("Safety net (drop warnings for what you own)"):
+            _moves(
+                "A model warns when something you own is likely to fall "
+                f"{c.safety.drop:.0%}+ within about a month. It's only switched on for real once "
+                "its warnings have been right often enough in testing."
+            )
+            a, b = st.columns(2)
+            v["safety"]["enabled"] = a.toggle(
+                "Use drop warnings",
+                value=c.safety.enabled,
+                help="When on and proven, a warned holding moves to Sell as 'consider trimming'.",
+            )
+            with b:
+                v["safety"]["bar"] = _pct(
+                    "Warnings must be right at least",
+                    c.safety.bar,
+                    min_value=60.0,
+                    max_value=99.0,
+                    help="Share of past warnings (one per stock per month) that came true. "
+                    "Changing it takes effect at the next monthly rebuild.",
+                )
         with st.expander("Data and alerts"):
             a, b, d = st.columns(3)
             v["universe"]["size"] = a.number_input(

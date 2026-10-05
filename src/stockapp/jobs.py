@@ -113,6 +113,12 @@ def weekly_steps(conn: psycopg.Connection, lake: Lake, cfg: AppConfig, today: da
         s = train_and_score(lake, cfg, today)
         return f"scores: {s.height} stocks for {s['trade_date'][0]}"
 
+    def safety() -> str:
+        from stockapp.models.safety import score_safety
+
+        out = score_safety(lake) if cfg.safety.enabled else None
+        return "safety net: not built yet" if out is None else f"safety net: {out.height} scored"
+
     def plan() -> str:
         p, plan_id = pipeline.build_weekly_plan(conn, lake, cfg, today)
         status = notify(
@@ -124,6 +130,7 @@ def weekly_steps(conn: psycopg.Connection, lake: Lake, cfg: AppConfig, today: da
         *daily_steps(conn, lake, cfg, today),
         ("features", features),
         ("score", score),
+        ("safety scores", safety),
         ("plan", plan),
     ]
 
@@ -134,6 +141,13 @@ def monthly_steps(conn: psycopg.Connection, lake: Lake, cfg: AppConfig, today: d
     def revalidate() -> str:
         run = run_backtests(lake, cfg, today)
         return "gate: " + ", ".join(f"{s} {g.status}" for s, g in run.gates.items())
+
+    def safety_net() -> str:
+        from stockapp.models.safety import build_safety
+
+        if not cfg.safety.enabled:
+            return "safety net: off"
+        return f"safety net: {build_safety(lake, cfg, today).status}"
 
     def money() -> str:
         from stockapp.models.money import evaluate_money_gate
@@ -157,6 +171,7 @@ def monthly_steps(conn: psycopg.Connection, lake: Lake, cfg: AppConfig, today: d
     return [
         ("revalidate", revalidate),
         ("money test", money),
+        ("safety net", safety_net),
         ("retrain", retrain),
         ("announce", announce),
     ]

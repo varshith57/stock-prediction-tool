@@ -140,6 +140,10 @@ Neon later) for app state, LightGBM, scikit-learn, Streamlit, pytest, ruff, GitH
   90% gate below. Ideas are ranked by `engine.net_edge` (expected gain after round-trip costs);
   only `budget.satellite_share` of new money funds them, the rest is the week's index-fund
   amount (`plan.core_inr`).
+- Safety net (`models/safety.py`, `stockapp safety build`, monthly job; weekly re-score):
+  -5% within 20 days for holdings only, group of 5 models. Tested on deduplicated warnings (one
+  per stock per 28 days) at `safety.bar` 80% (user-approved default), worst case 70%, most years.
+  When LIVE, a warned holding (trade or investment) goes to Sell as "consider trimming".
 - Paper trading (`stockapp.paper`, shown on Track record): the live weekly `latest_scores`
   replayed through `strategy.simulate` at `paper.cutoff` with pretend money; recomputed, never
   stored, compared with the same strategy in the backtest. Judge after ~12 weeks.
