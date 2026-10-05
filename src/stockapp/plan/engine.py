@@ -194,6 +194,8 @@ def build_plan(
             "return_pct": h.last_close / h.cost_per_share - 1 if h.cost_per_share else None,
             "value": h.quantity * h.last_close if h.quantity else None,
             "style": "trade" if h.opened_by_signal_a else "investment",
+            "quantity": int(h.quantity) if h.quantity else None,
+            "guide_price": h.last_close,
         }
         if hits:
             r = hits[0]

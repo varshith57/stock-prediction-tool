@@ -92,9 +92,18 @@ def daily_steps(conn: psycopg.Connection, lake: Lake, cfg: AppConfig, today: dat
     steps: list[Step] = [("ingest", lambda: pipeline.ingest_recent(conn, lake, today))]
     if today.weekday() == 0:
         steps.append(("reference", lambda: pipeline.refresh_reference(conn, lake, today)))
+
+    def plan() -> str:
+        # this week's advice with today's prices: rules, reviews, values and gains stay current
+        if not lake.has_table("gold", "latest_scores"):
+            return "plan refresh: no scores yet"
+        p, _ = pipeline.build_weekly_plan(conn, lake, cfg, today)
+        return f"plan refreshed: {p.action_count} action(s)"
+
     steps += [
         ("quality", lambda: pipeline.rebuild_quality(lake, cfg, today)),
         ("exit_watch", watch),
+        ("plan refresh", plan),
     ]
     return steps
 

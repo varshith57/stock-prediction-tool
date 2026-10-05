@@ -95,7 +95,9 @@ def test_job_stops_at_first_failure_records_and_alerts(db: psycopg.Connection):
 
 
 def test_plists_have_the_agreed_schedule():
-    assert [t[0] for t in TIMES["daily"]] == [1, 2, 3, 4] and TIMES["weekly"] == [(5, 20, 0)]
+    # user's choice 2026-10-05: daily refresh every morning Mon-Sat at 07:30
+    assert TIMES["daily"] == [(wd, 7, 30) for wd in (1, 2, 3, 4, 5, 6)]
+    assert TIMES["weekly"] == [(5, 20, 0)]
     xml = plist("weekly", uv="/opt/homebrew/bin/uv")
     assert "<string>com.stockapp.weekly</string>" in xml
     assert "<string>/usr/bin/caffeinate</string><string>-i</string>" in xml

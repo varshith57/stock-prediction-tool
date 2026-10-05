@@ -85,3 +85,13 @@ def actions_for(conn: psycopg.Connection, plan_id: int) -> dict[str, dict]:
         (plan_id,),
     ).fetchall()
     return {r["item_key"]: r for r in rows}
+
+
+def review_decisions(conn: psycopg.Connection) -> dict[str, dict]:
+    """company_id -> the latest decision on a "Review" flag (``kept`` / ``sold``) across weeks,
+    so a holding you chose to keep isn't flagged as new every week."""
+    rows = conn.execute(
+        """SELECT DISTINCT ON (item_key) item_key, action, acted_at FROM plan_actions
+           WHERE item_key LIKE 'REVIEW:%%' ORDER BY item_key, acted_at DESC"""
+    ).fetchall()
+    return {r["item_key"].removeprefix("REVIEW:"): r for r in rows}

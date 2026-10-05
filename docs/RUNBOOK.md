@@ -6,7 +6,7 @@ Everything runs on this Mac. Commands are run from the project folder.
 
 | Job | When (IST) | What | Telegram |
 |---|---|---|---|
-| daily | Mon-Thu 19:30 | new NSE files, quality build, exit watch on holdings | only if a hard exit rule fires or a step fails |
+| daily | Mon-Sat 07:30 (runs on wake if the lid was closed) | new NSE files (any missed days), quality build, exit watch on holdings, this week's plan refreshed with the latest close | only if a hard exit rule fires or a step fails |
 | weekly | Fri 20:00 | daily steps + features + scores + weekly plan | the plan summary |
 | monthly | first Saturday 10:00 | re-validate the 90% gate, retrain | "Monthly audit ready" |
 

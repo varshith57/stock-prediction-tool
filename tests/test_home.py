@@ -40,6 +40,7 @@ def home(db: psycopg.Connection, _test_database: str, tmp_path, monkeypatch: pyt
             hold("LOSER", cost=100, last=80, quantity=5, opened_by_signal_a=True),
             hold("RISKY"),
             hold("SAFE"),
+            hold("DEEP", cost=100, last=80, quantity=3),  # an investment past the review line
         ],
         gates=OFF,
     )
@@ -61,6 +62,8 @@ def test_buckets_and_slider(home):
     assert text.index("RISKY") < text.index("SAFE")  # riskiest hold first
     assert "Drop warnings haven't passed their tests yet" in text
     assert "Stock ideas: best 43%" in text
+    assert "Sell all 5 shares at Monday's open" in text  # every flag says what to do
+    assert "would I buy it today at ₹80.00?" in text and "tap Keep" in text
 
     at.slider(key="confidence").set_value(15).run()
     assert not at.exception
@@ -68,5 +71,5 @@ def test_buckets_and_slider(home):
     assert "N4" in text and "N3" in text and "N2" not in text  # 20% and 15% shown, 10% not
     assert "watch, don't buy" in text
     assert "40% drop risk" in text and "watch, don't sell yet" in text  # RISKY moves to Sell
-    for symbol in ("LOSER", "RISKY", "SAFE"):  # every holding shown exactly once
+    for symbol in ("LOSER", "RISKY", "SAFE", "DEEP"):  # every holding shown exactly once
         assert text.count(f">{symbol}<") == 1

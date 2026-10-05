@@ -56,7 +56,7 @@ def render() -> None:
         ]
     )
     if view.warnings:
-        st.warning("\n".join(f"- {w}" for w in view.warnings))
+        _limits(view, t)
     if not view.holdings.is_empty() and view.holdings["stale"].any():
         st.error("Some prices are stale: no new advice on those until they trade again.")
 
@@ -78,6 +78,38 @@ def render() -> None:
     with st.expander(f"Sold so far ({len(loaded.ledger.realised)})"):
         ui.muted(f"Profit from sales: {inr(t['realised'])}")
         _realised(loaded)
+
+
+def _limits(view, t) -> None:
+    """Warnings with what to do: how many shares bring a stock back under its cap."""
+    import math
+
+    risk = cfg().risk
+    lines = []
+    h = view.holdings
+    for r in h.iter_rows(named=True) if not h.is_empty() else []:
+        w = (r["weight_pct"] or 0) / 100
+        if w > risk.max_stock_weight and r["last_price"]:
+            excess = (w - risk.max_stock_weight) * t["value"]
+            n = min(math.ceil(excess / r["last_price"]), int(r["quantity"]))
+            lines.append(
+                f"**{r['symbol']}** is {w:.0%} of your money (limit {risk.max_stock_weight:.0%}). "
+                f"What to do: don't buy more of it. To get back to the limit, sell about {n} "
+                f"shares (about {inr(n * r['last_price'])}), or simply let new money go elsewhere "
+                "until it shrinks."
+            )
+    sectors = [w for w in view.warnings if w.startswith("Sector ")]
+    for w in sectors:
+        lines.append(
+            f"{w}. What to do: don't buy more in this sector; your index-fund money spreads "
+            "across all sectors and brings it down over time."
+        )
+    other = [
+        w for w in view.warnings if not w.startswith("Sector ") and " of the portfolio " not in w
+    ]
+    lines += other
+    if lines:
+        st.warning("\n\n".join(lines))
 
 
 def _holdings(view, t) -> None:

@@ -76,6 +76,9 @@ button[kind="primary"] {{ font-weight: 600; }}
 .sa-holdrow {{ display:flex; justify-content:space-between; align-items:center; gap:.6rem;
                padding: .55rem 0; border-bottom: 1px solid {LINE}; }}
 .sa-holdrow:last-child {{ border-bottom: 0; }}
+.sa-todo {{ background: #FFF8EC; border-left: 3px solid {AMBER}; border-radius: .4rem;
+            padding: .5rem .7rem; margin: .5rem 0 .4rem; font-size: .86rem; color: {INK};
+            line-height: 1.45; }}
 </style>
 """
 

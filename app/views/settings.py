@@ -688,7 +688,10 @@ def render() -> None:
                 st.session_state["settings_result"] = (True, lines)
             st.rerun()
 
-    ui.muted("The app updates itself on this Mac: daily Mon-Thu 19:30, weekly advice Friday 20:00.")
+    ui.muted(
+        "The app updates itself on this Mac every morning at 7:30 (Mon-Sat), or as soon as you "
+        "open the lid if it was closed. New weekly ideas: Friday 20:00."
+    )
 
 
 def _gate_rows() -> list[dict]:

@@ -180,7 +180,10 @@ Neon later) for app state, LightGBM, scikit-learn, Streamlit, pytest, ruff, GitH
   `pipeline.py`. A job stops at the first failing step, records every step in `job_runs`, and
   alerts once via `alerts.notify` (cap 3/week except exit rules; dedupe keys; amounts refused).
 - `uv run stockapp schedule show|install|uninstall`: plists in ~/Library/LaunchAgents
-  (com.stockapp.*). Daily Mon-Thu 19:30, weekly Fri 20:00, monthly Sat 10:00 (first Saturday only).
+  (com.stockapp.*). Daily Mon-Sat 07:30 (user's choice 2026-10-05: catches up missed days and
+  refreshes the plan with the latest close; runs on wake if the lid was closed), weekly Fri
+  20:00, monthly Sat 10:00 (first Saturday only). App prices are NSE's official close (bhavcopy),
+  not Kite's last traded price; the app never logs in to a broker.
   Never install or change the schedule without the user's explicit OK.
 - Logs: data/logs/launchd_<job>.log. Docker (Postgres) must be running for jobs.
 

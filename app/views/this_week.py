@@ -8,6 +8,7 @@ Sells come first by urgency, holds riskiest first, buys by chance.
 
 from __future__ import annotations
 
+from datetime import date
 from html import escape
 
 import streamlit as st
@@ -18,10 +19,12 @@ from stockapp.cli import IST
 from stockapp.config import horizon
 from stockapp.db import connect
 from stockapp.models.run import precision_at_bar
-from stockapp.plan.store import actions_for, latest_plan, log_action
+from stockapp.plan.store import actions_for, latest_plan, log_action, review_decisions
 
 ACT_BAR = 0.90
 LOG = {"done": "Done", "skipped": "Skipped"}
+REVIEW_LOG = {"kept": "Keep", "sold": "Sold"}
+KEEP_QUIET_DAYS = 28  # after "Keep", the flag stays quiet this long
 RULE_NAMES = {
     "stop_loss": "Stop-loss hit",
     "trailing_stop": "Trailing stop hit",
@@ -44,13 +47,20 @@ def _card(symbol: str, tag: str, tone: str, lines: list[str]) -> None:
     )
 
 
-def _log(plan_id: int, key: str, logged: dict) -> None:
+def _todo(text: str) -> None:
+    st.markdown(
+        f'<div class="sa-todo"><b>What to do:</b> {escape(text)}</div>', unsafe_allow_html=True
+    )
+
+
+def _log(plan_id: int, key: str, logged: dict, options: dict | None = None) -> None:
+    options = options or LOG
     current = logged.get(key)
     choice = st.segmented_control(
         "Log",
-        list(LOG),
-        format_func=LOG.get,
-        default=current["action"] if current and current["action"] in LOG else None,
+        list(options),
+        format_func=options.get,
+        default=current["action"] if current and current["action"] in options else None,
         key=f"log:{key}",
         label_visibility="collapsed",
     )
@@ -100,6 +110,11 @@ def _buy(plan: dict, plan_id: int, logged: dict, bar: float, gain: float, when: 
                     f"{share:.0%}, so a bad run of ideas can only touch a small slice.",
                 ],
             )
+            _todo(
+                f"In Kite, open Coin and invest {inr(core)} in a Nifty 50 or Nifty 500 index fund "
+                "(direct plan), or buy an index ETF for that amount. Then tap Done."
+            )
+            _log(plan_id, "CORE", logged)
     for o in acts:
         with st.container(border=True):
             _card(
@@ -111,6 +126,12 @@ def _buy(plan: dict, plan_id: int, logged: dict, bar: float, gain: float, when: 
                     f"Expected gain after costs {o['expected_gain']:+.1%}",
                     f"Sell when it reaches {inr(o['sellout_price'], 2)} (+{gain:.0%})",
                 ],
+            )
+            _todo(
+                f"At Monday's open in Kite, place a limit order for {o['quantity']} shares at "
+                f"about {inr(o['guide_price'] * 1.01, 2)}. Skip it if the price is already more "
+                "than 2% higher. Then tap Done and record it on Portfolio as a Trade: the app "
+                "will tell you when to sell."
             )
             _log(plan_id, f"BUY:{o['company_id']}", logged)
     if not acts:
@@ -124,8 +145,16 @@ def _buy(plan: dict, plan_id: int, logged: dict, bar: float, gain: float, when: 
                 else f"Nothing qualifies {when}. Waiting is a decision too."
             )
     for n in plan["notes"]:
-        if "paused" in n or "stress" in n:
-            st.warning(n[0].upper() + n[1:])
+        if "paused" in n:
+            st.warning(
+                n[0].upper() + n[1:] + ". What to do: nothing. Keep holding what you have and "
+                "keep adding the index-fund amount; stock buying resumes on its own."
+            )
+        elif "stress" in n:
+            st.warning(
+                "The market is nervous, so new stock buys are paused. What to do: keep holding "
+                "and keep adding the index-fund amount."
+            )
     if queue:
         st.markdown(
             '<div class="sa-watchhead">Up next · watch, don\'t buy</div>',
@@ -136,7 +165,7 @@ def _buy(plan: dict, plan_id: int, logged: dict, bar: float, gain: float, when: 
                 f"b_{w['company_id']}",
                 w["symbol"],
                 f"{w['probability']:.0%} chance",
-                [f"Near {inr(w['guide_price'], 2)}"],
+                [f"Near {inr(w['guide_price'], 2)} · don't buy yet: it hasn't passed the bar"],
             )
 
 
@@ -147,13 +176,32 @@ def _sell(plan: dict, plan_id: int, logged: dict, watch: list[dict], drop: str) 
     )
     for e in acts:
         with st.container(border=True):
+            qty = e.get("quantity")
+            shares = f"{qty} shares" if qty else "your shares"
             if e.get("rule"):
                 tag, why = RULE_NAMES.get(e["rule"], "Rule"), e["reason"]
-            elif e.get("safety"):
-                tag, why = "Drop warning", f"{e['headline']}. {e['reason']}."
+                todo = {
+                    "target_reached": f"Sell all {shares} at Monday's open in Kite to take the "
+                    "profit.",
+                    "time_stop": f"Sell all {shares} at Monday's open in Kite: the trade had its "
+                    "window and the money can go to the next idea.",
+                }.get(
+                    e["rule"],
+                    f"Sell all {shares} at Monday's open in Kite (a market order) so the loss "
+                    "can't grow.",
+                )
             else:
-                tag, why = f"{e['probability']:.0%} drop risk", f"Likely to fall {drop}"
+                if e.get("safety"):
+                    tag, why = "Drop warning", f"{e['headline']}. {e['reason']}."
+                else:
+                    tag, why = f"{e['probability']:.0%} drop risk", f"Likely to fall {drop}"
+                half = f"half ({qty // 2} shares)" if qty and qty > 1 else "some"
+                todo = (
+                    f"Cut risk: sell {half} in Kite, or all {shares} if you'd rather be safe. "
+                    "Keep the rest if you still believe in the company."
+                )
             _card(e["symbol"], tag, "red", [why, _mine(e)])
+            _todo(todo + " Then tap Done and record the sale on Portfolio.")
             _log(plan_id, f"SELL:{e['company_id']}", logged)
     if not acts:
         with st.container(border=True):
@@ -173,34 +221,64 @@ def _sell(plan: dict, plan_id: int, logged: dict, watch: list[dict], drop: str) 
             )
 
 
-def _hold(holds: list[dict]) -> None:
-    _column_head("Hold", len(holds), "grey", "Keep these. Ones to review first, then riskiest.")
+def _hold(holds: list[dict], plan_id: int, logged: dict, decisions: dict) -> None:
+    _column_head("Hold", len(holds), "grey", "Nothing to do for these unless one is flagged.")
+    today = date.today()
     with st.container(border=True):
         if not holds:
             ui.muted("Nothing else you own. Record your trades on Portfolio to see them here.")
         for h in holds:
-            if h.get("review"):
+            cid = h["company_id"]
+            last = decisions.get(cid)
+            kept_recently = (
+                h.get("review")
+                and last is not None
+                and last["action"] == "kept"
+                and (today - last["acted_at"].date()).days < KEEP_QUIET_DAYS
+            )
+            if h.get("review") and not kept_recently:
                 right = ui.pill("Review", "amber")
+            elif kept_recently:
+                right = '<span class="sa-muted">Kept</span>'
             elif h.get("probability") is not None:
                 right = f'<span class="sa-muted">{h["probability"]:.0%} drop risk</span>'
             else:
                 right = '<span class="sa-muted">Hold</span>'
-            note = (
-                f'<div class="sa-line sa-muted">{escape(h["reason"])}</div>'
-                if h.get("review")
-                else ""
-            )
             st.markdown(
                 f'<div class="sa-holdrow"><div><span class="sa-sym">{escape(h["symbol"])}</span>'
-                f'<div class="sa-line">{escape(_mine(h))}</div>{note}</div>{right}</div>',
+                f'<div class="sa-line">{escape(_mine(h))}</div></div>{right}</div>',
                 unsafe_allow_html=True,
             )
+            if kept_recently:
+                ui.muted(
+                    f"You chose to keep it on {last['acted_at']:%d %b}. Nothing to do; it'll ask "
+                    f"again after {KEEP_QUIET_DAYS} days if it's still down."
+                )
+            elif h.get("review"):
+                price = inr(h.get("guide_price"), 2) if h.get("guide_price") else "today's price"
+                ui.muted(h["reason"] + ".")
+                _todo(
+                    f"1) Check why it fell: recent results or news (Kite's stock page has both). "
+                    f"2) Ask yourself: would I buy it today at {price}? "
+                    "3) Yes: tap Keep and hold on. No: sell in Kite, tap Sold and record the "
+                    "sale on Portfolio."
+                )
+                _log(plan_id, f"REVIEW:{cid}", logged, REVIEW_LOG)
+
+
+def _price_date(plan: dict, row: dict):
+    """The close the values on this page use (the plan is refreshed every morning)."""
+    from views.data_status import _status
+
+    as_of = _status().get("as_of")
+    return as_of if as_of and as_of >= row["signal_date"] else row["signal_date"]
 
 
 def render() -> None:
     with connect() as conn:
         row = latest_plan(conn)
         logged = actions_for(conn, row["plan_id"]) if row else {}
+        decisions = review_decisions(conn)
     if row is None:
         ui.header("This week")
         ui.hero("No plan yet", "It's built every Friday evening after the market closes.")
@@ -209,7 +287,8 @@ def render() -> None:
     built = row["built_at"].astimezone(IST)
     ui.header(
         "This week",
-        f"Based on the market close of {row['signal_date']:%a %d %b} · "
+        f"Prices: NSE official close of {_price_date(plan, row):%a %d %b} · "
+        f"ideas from the week ending {row['signal_date']:%a %d %b} · "
         f"updated {built:%a %d %b, %H:%M}",
     )
     if plan["status"] == "NO_SIGNAL":
@@ -263,7 +342,7 @@ def render() -> None:
     with b:
         _buy(plan, row["plan_id"], logged, bar, gain, when)
     with h:
-        _hold(keep)
+        _hold(keep, row["plan_id"], logged, decisions)
     with s:
         _sell(plan, row["plan_id"], logged, sell_watch, f"{sig.crash_threshold:.0%}+ {when}")
 
