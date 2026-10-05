@@ -369,6 +369,27 @@ def _models_money(_: argparse.Namespace) -> int:
     return 0
 
 
+def _results_backfill(args: argparse.Namespace) -> int:
+    from stockapp.db import connect
+    from stockapp.ingest.http import PoliteClient
+    from stockapp.ingest.nse_corp_actions import month_start
+    from stockapp.ingest.nse_results import NseBoardMeetings, NseFinancialResults
+    from stockapp.lake import Lake
+
+    lake, end = Lake.from_settings(), args.end or date.today()
+    failed = 0
+    with connect() as conn, PoliteClient(min_interval_s=args.interval) as http:
+        http.get("https://www.nseindia.com/companies-listing/corporate-filings-board-meetings")
+        month = month_start(args.start)
+        while month <= month_start(end):
+            for c in (NseBoardMeetings, NseFinancialResults):
+                r = c(conn, lake, http).run(month, skip_if_loaded=not args.force)
+                print(f"{c.source_id} {r.partition_key} {r.status} rows={r.rows or 0}", flush=True)
+                failed += r.status == "failed"
+            month = month_start(month + timedelta(days=32))
+    return 1 if failed else 0
+
+
 def _safety_build(_: argparse.Namespace) -> int:
     from datetime import datetime
 
@@ -617,6 +638,16 @@ def main(argv: list[str] | None = None) -> int:
     mod_sub.add_parser("train", help="fit final models and score the latest week").set_defaults(
         func=_models_train
     )
+
+    rs = sub.add_parser("results", help="results dates: board meetings and results filings")
+    rb = rs.add_subparsers(dest="results_command", required=True).add_parser(
+        "backfill", help="fetch month by month (resumable; loaded months are skipped)"
+    )
+    rb.add_argument("--start", type=_parse_day, default=date(2016, 1, 1))
+    rb.add_argument("--end", type=_parse_day)
+    rb.add_argument("--force", action="store_true", help="refetch months already loaded")
+    rb.add_argument("--interval", type=float, default=1.5)
+    rb.set_defaults(func=_results_backfill)
 
     sf = sub.add_parser("safety", help="monthly drop warnings for holdings")
     sf.add_subparsers(dest="safety_command", required=True).add_parser(

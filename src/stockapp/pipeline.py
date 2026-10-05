@@ -55,9 +55,24 @@ def refresh_reference(conn: psycopg.Connection, lake: Lake, today: date) -> str:
             c(conn, lake, http).run(today).status
             for c in (NseSymbolChanges, NseEquityList, NseSectorList)
         ]
+        # results dates: last month, this month and next (meetings are announced ahead)
+        from stockapp.ingest.nse_corp_actions import month_start
+        from stockapp.ingest.nse_results import NseBoardMeetings, NseFinancialResults
+
+        this = month_start(today)
+        months = [
+            month_start(this - timedelta(days=1)),
+            this,
+            month_start(this + timedelta(days=32)),
+        ]
+        results = [
+            c(conn, lake, http).run(m, force=True).status
+            for m in months
+            for c in (NseBoardMeetings, NseFinancialResults)
+        ]
     if "failed" in statuses:
         raise RuntimeError(f"reference snapshot failed: {statuses}")
-    return f"reference: {n} holidays, snapshots {statuses}"
+    return f"reference: {n} holidays, snapshots {statuses}, results dates {results}"
 
 
 def rebuild_quality(lake: Lake, cfg: AppConfig, today: date) -> str:

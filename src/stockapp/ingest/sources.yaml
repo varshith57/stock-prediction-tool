@@ -101,3 +101,24 @@ nse_sector_list:
     not available from this file.
   fallback: ind_nifty500list.csv (same columns, 500 stocks)
   earliest_date_note: Current snapshot only (first fetched 2026-10-04).
+
+nse_board_meetings:
+  name: NSE board meetings (equities)
+  provides: Board meeting dates and purposes (financial results, dividends, fund raising) with the time each meeting was announced
+  access: JSON API on www.nseindia.com, queried by meeting month; needs a cookie-keeping session and a Referer
+  url_template: https://www.nseindia.com/api/corporate-board-meetings?index=equities&from_date={dd-mm-yyyy}&to_date={dd-mm-yyyy}
+  terms_note: >-
+    Personal, non-commercial use; no redistribution. bm_timestamp is the announcement time, used
+    so upcoming results are only known from then on (point in time).
+  fallback: BSE board meetings; company announcements
+  earliest_date_note: Spot-checked 2026-10-05 Jan 2012 returns results meetings with timestamps; no row cap seen (May 2024 = 3,868 in one call).
+
+nse_financial_results:
+  name: NSE financial results filings (equities, quarterly)
+  provides: When each quarterly result was published, its period, consolidated/standalone, audited, and the XBRL filing link
+  access: JSON API on www.nseindia.com, queried by filing month; needs a cookie-keeping session and a Referer
+  url_template: https://www.nseindia.com/api/corporates-financial-results?index=equities&period=Quarterly&from_date={dd-mm-yyyy}&to_date={dd-mm-yyyy}
+  terms_note: >-
+    Personal, non-commercial use; no redistribution. broadCastDate is the publication time.
+  fallback: BSE results; company announcements
+  earliest_date_note: Spot-checked 2026-10-05 May 2024 = 3,056 filings in one call.
