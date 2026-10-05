@@ -45,7 +45,7 @@ def _login() -> bool:
             return False
         with st.form("login", border=False):
             password = st.text_input("Password", type="password")
-            ok = st.form_submit_button("Sign in", type="primary", use_container_width=True)
+            ok = st.form_submit_button("Sign in", type="primary", width="stretch")
         if ok:
             if verify_password(password, stored.get_secret_value()):
                 st.session_state["authed"] = True

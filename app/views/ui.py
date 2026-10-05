@@ -55,6 +55,15 @@ h1, h2, h3 {{ letter-spacing: -0.01em; color: {INK}; }}
 div[data-testid="stSidebarNav"] a, [data-testid="stSidebarNavLink"] {{ border-radius: .55rem; }}
 [data-testid="stMetricValue"] {{ font-weight: 700; }}
 button[kind="primary"] {{ font-weight: 600; }}
+.sa-moves {{ color: {MUTED}; font-size: .8rem; line-height: 1.35; margin: -.35rem 0 .9rem; }}
+.st-key-sa_main {{ border-color: {INK}22 !important; }}
+.st-key-sa_main label p {{ font-weight: 600; color: {INK}; }}
+.sa-quiet-title {{ color: {MUTED}; font-size: .95rem; margin-top: 2.4rem; }}
+.st-key-sa_quiet {{ background: {SOFT}; border-radius: .75rem; padding: .9rem 1rem; }}
+.st-key-sa_quiet [data-testid="stExpander"] details {{ background: {SOFT}; border-color: {LINE}; }}
+.st-key-sa_quiet [data-testid="stExpander"] summary p,
+.st-key-sa_quiet label p {{ color: {MUTED}; font-weight: 500; }}
+.st-key-sa_quiet input {{ color: {MUTED}; }}
 </style>
 """
 

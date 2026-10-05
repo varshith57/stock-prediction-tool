@@ -86,7 +86,7 @@ def render() -> None:
         st.dataframe(
             table,
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             column_config={
                 "Avg cost": MONEY(format="₹%.2f"),
                 "Last": MONEY(format="₹%.2f"),
@@ -259,7 +259,7 @@ def _transactions(loaded: service.Loaded) -> None:
             strict=False,
         ),
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
         column_config={"Price": MONEY(format="₹%.2f")},
     )
     a, b, c = st.columns([2, 1, 1])
@@ -302,6 +302,6 @@ def _realised(loaded: service.Loaded) -> None:
             ]
         ),
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
         column_config={c: MONEY(format="₹%.2f") for c in ("Cost", "Proceeds", "Gain")},
     )

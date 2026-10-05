@@ -108,29 +108,83 @@ def _pct(
     return value if v == shown else round(v / 100, 10)
 
 
-def _form(c: AppConfig) -> tuple[dict, str, bool]:
-    v = c.model_dump()
-    with st.form("settings", border=False):
-        ui.section("Budget")
-        with st.container(border=True):
-            a, b = st.columns(2)
-            v["budget"]["weekly_inr"] = a.number_input(
-                "Weekly budget (₹)",
-                value=float(c.budget.weekly_inr),
-                min_value=1.0,
-                step=500.0,
-                help="Added every week; it accumulates until a buy uses it.",
+def _moves(text: str) -> None:
+    st.markdown(f'<div class="sa-moves">{text}</div>', unsafe_allow_html=True)
+
+
+def _main_inputs(c: AppConfig, v: dict) -> bool:
+    """The few settings that change what you're shown each week."""
+    ui.section("Your inputs")
+    with st.container(border=True, key="sa_main"):
+        a, b, d = st.columns(3)
+        with a:
+            v["budget"]["weekly_inr"] = st.number_input(
+                "Weekly budget (₹)", value=float(c.budget.weekly_inr), min_value=1.0, step=500.0
             )
-            v["budget"]["min_position_inr"] = b.number_input(
+            _moves("Cash added each week for new buys. It builds up until a buy uses it.")
+        with b:
+            v["budget"]["min_position_inr"] = st.number_input(
                 "Minimum position (₹)",
                 value=float(c.budget.min_position_inr),
                 min_value=1.0,
                 step=500.0,
-                help="Smaller buys aren't suggested: charges would eat the edge.",
             )
+            _moves("Smallest buy suggested. Higher means fewer, larger buys.")
+        with d:
+            v["signals"]["max_opportunities"] = st.number_input(
+                "Buy ideas a week (max)",
+                value=min(c.signals.max_opportunities, 5),
+                min_value=0,
+                max_value=5,
+                step=1,
+            )
+            _moves("How many opportunities you see, best expected gain first. 5 at most.")
+        a, b, d = st.columns(3)
+        with a:
+            v["risk"]["max_stock_weight"] = _pct(
+                "Per-stock cap", c.risk.max_stock_weight, min_value=1.0
+            )
+            _moves("Most of the portfolio in one stock. Sets the size of each buy.")
+        with b:
+            v["risk"]["max_sector_weight"] = _pct(
+                "Per-sector cap", c.risk.max_sector_weight, min_value=1.0
+            )
+            _moves("Most in one sector. Buys that would break it are skipped.")
+        with d:
+            current_goal = c.goal.target_monthly_return
+            goal = _pct(
+                "Monthly return goal",
+                current_goal or 0.0,
+                step=0.25,
+                min_value=0.0,
+                max_value=100.0,
+            )
+            v["goal"]["target_monthly_return"] = goal or None
+            _moves("Compared with history below. Never changes recommendations. 0 = off.")
+        note = st.text_input(
+            "What changed and why (optional)",
+            placeholder="e.g. raised budget",
+            label_visibility="collapsed",
+        )
+        v["_note"] = note
+        return st.form_submit_button("Save and apply", type="primary", icon=":material/check:")
 
-        ui.section("Signals")
-        with st.container(border=True):
+
+def _set_once(c: AppConfig, v: dict) -> bool:
+    """Rarely changed: shown toned down and folded away."""
+    st.markdown(
+        '<div class="sa-section sa-quiet-title">Set once · rarely changed</div>',
+        unsafe_allow_html=True,
+    )
+    with st.container(key="sa_quiet"):
+        _moves(
+            "Defaults come from the PRD and the validated models. Most people never touch these."
+        )
+        with st.expander(
+            f"Signals and validation · bar {c.signals.certainty_bar:.0%}, "
+            f"+{c.signals.gain_threshold:.0%} / -{c.signals.crash_threshold:.0%} in "
+            f"{c.signals.window_trading_days} days"
+        ):
             a, b, d = st.columns(3)
             with a:
                 v["signals"]["gain_threshold"] = _pct(
@@ -160,10 +214,11 @@ def _form(c: AppConfig) -> tuple[dict, str, bool]:
             with a:
                 v["signals"]["certainty_bar"] = _pct(
                     "Certainty bar",
-                    c.signals.certainty_bar,
-                    min_value=50.0,
+                    max(c.signals.certainty_bar, 0.9),
+                    min_value=90.0,
                     max_value=99.0,
-                    help="Signals show only at or above this validated precision.",
+                    help="Signals show only at or above this validated precision (never below "
+                    "90%). Use the explorer below to see what a lower bar would have meant.",
                 )
             with b:
                 v["signals"]["gate"]["min_wilson_lower_bound"] = _pct(
@@ -176,60 +231,34 @@ def _form(c: AppConfig) -> tuple[dict, str, bool]:
             v["signals"]["gate"]["min_signals"] = d.number_input(
                 "Minimum validated signals", value=c.signals.gate.min_signals, min_value=10, step=5
             )
-            a, b = st.columns(2)
-            v["signals"]["max_opportunities"] = a.number_input(
-                "Max opportunities a week",
-                value=c.signals.max_opportunities,
-                min_value=0,
-                max_value=20,
-                step=1,
-            )
+            _moves("Changing thresholds or the window needs a retrain (offered after saving).")
 
-        ui.section("Risk")
-        with st.container(border=True):
+        trail_now = c.risk.trailing_stop_atr_multiple
+        with st.expander(
+            f"Risk rules · stop {c.risk.stop_atr_multiple:g}x ATR, review at "
+            f"{c.risk.drawdown_review:.0%}, pause at {c.risk.drawdown_pause:.0%}"
+        ):
             a, b, d = st.columns(3)
-            with a:
-                v["risk"]["max_stock_weight"] = _pct(
-                    "Per-stock cap", c.risk.max_stock_weight, min_value=1.0
-                )
-            with b:
-                v["risk"]["max_sector_weight"] = _pct(
-                    "Per-sector cap", c.risk.max_sector_weight, min_value=1.0
-                )
-            v["risk"]["stop_atr_multiple"] = d.number_input(
+            v["risk"]["stop_atr_multiple"] = a.number_input(
                 "Stop distance (x ATR below cost)",
                 value=float(c.risk.stop_atr_multiple),
                 min_value=0.5,
                 max_value=10.0,
                 step=0.5,
             )
-            a, b, d = st.columns(3)
-            trailing_on = a.toggle(
-                "Trailing stop", value=c.risk.trailing_stop_atr_multiple is not None
-            )
-            trail = b.number_input(
+            trailing_on = b.toggle("Trailing stop", value=trail_now is not None)
+            trail = d.number_input(
                 "Trailing distance (x ATR)",
-                value=float(c.risk.trailing_stop_atr_multiple or 3.0),
+                value=float(trail_now or 3.0),
                 min_value=0.5,
                 max_value=10.0,
                 step=0.5,
             )
             v["risk"]["trailing_stop_atr_multiple"] = trail if trailing_on else None
-            with d:
-                v["risk"]["stress_vix_percentile"] = _pct(
-                    "Stress: VIX percentile",
-                    c.risk.stress_vix_percentile,
-                    min_value=50.0,
-                    max_value=99.0,
-                    help="Plus Nifty 500 below its 200-day average.",
-                )
-            a, b = st.columns(2)
+            a, b, d = st.columns(3)
             with a:
                 v["risk"]["drawdown_review"] = -_pct(
-                    "Review when down",
-                    -c.risk.drawdown_review,
-                    min_value=1.0,
-                    max_value=60.0,
+                    "Review when down", -c.risk.drawdown_review, min_value=1.0, max_value=60.0
                 )
             with b:
                 v["risk"]["drawdown_pause"] = -_pct(
@@ -238,9 +267,19 @@ def _form(c: AppConfig) -> tuple[dict, str, bool]:
                     min_value=1.0,
                     max_value=60.0,
                 )
+            with d:
+                v["risk"]["stress_vix_percentile"] = _pct(
+                    "Stress: VIX percentile",
+                    c.risk.stress_vix_percentile,
+                    min_value=50.0,
+                    max_value=99.0,
+                    help="Plus Nifty 500 below its 200-day average.",
+                )
 
-        ui.section("Universe, data and alerts")
-        with st.container(border=True):
+        with st.expander(
+            f"Data and alerts · top {c.universe.size}, Telegram "
+            f"{'on' if c.alerts.telegram_enabled else 'off'}"
+        ):
             a, b, d = st.columns(3)
             v["universe"]["size"] = a.number_input(
                 "Universe size (top N by turnover)",
@@ -259,7 +298,11 @@ def _form(c: AppConfig) -> tuple[dict, str, bool]:
                 help="Below this: NO SIGNAL.",
             )
             v["alerts"]["max_per_week"] = d.number_input(
-                "Alerts a week", value=c.alerts.max_per_week, min_value=0, max_value=20, step=1
+                "Alerts a week (max 3)",
+                value=min(c.alerts.max_per_week, 3),
+                min_value=0,
+                max_value=3,
+                step=1,
             )
             a, b = st.columns(2)
             v["alerts"]["telegram_enabled"] = a.toggle(
@@ -269,8 +312,7 @@ def _form(c: AppConfig) -> tuple[dict, str, bool]:
                 "Hide the closest-candidate line", value=c.alerts.hide_closest_candidate
             )
 
-        ui.section("Charges (Zerodha delivery) and tax")
-        with st.container(border=True):
+        with st.expander("Charges and tax · Zerodha delivery, indicative tax"):
             k = c.costs
             a, b, d, e = st.columns(4)
             with a:
@@ -312,24 +354,18 @@ def _form(c: AppConfig) -> tuple[dict, str, bool]:
                 min_value=0.0,
                 step=5000.0,
             )
+        return st.form_submit_button("Save", icon=":material/check:")
 
-        ui.section("Goal")
-        with st.container(border=True):
-            current_goal = c.goal.target_monthly_return
-            goal_on = st.toggle("Track a monthly return goal", value=current_goal is not None)
-            goal = _pct(
-                "Target return a month",
-                current_goal or 0.01,
-                step=0.25,
-                min_value=0.1,
-                max_value=100.0,
-            )
-            v["goal"]["target_monthly_return"] = goal if goal_on else None
-            ui.muted("Information only: recommendations never take more risk to chase a goal.")
 
-        note = st.text_input("What changed and why (optional)", placeholder="e.g. raised budget")
-        saved = st.form_submit_button("Save and apply", type="primary", icon=":material/check:")
-    return v, note, saved
+def _form(c: AppConfig) -> tuple[dict, str, bool]:
+    """One form: the main inputs on top, the rarely changed ones folded away below. Either
+    save button saves everything."""
+    v = c.model_dump()
+    with st.form("settings", border=False):
+        main = _main_inputs(c, v)
+        _goal(c)
+        rest = _set_once(c, v)
+    return v, v.pop("_note", ""), main or rest
 
 
 def _extra_checks(c: AppConfig) -> list[str]:
@@ -410,8 +446,20 @@ def _retrain_pending(history: list[dict]) -> bool:
 
 
 def _explore(c: AppConfig) -> None:
-    ui.section("What the bar would mean")
+    ui.section("Signal status and the bar")
     with st.container(border=True):
+        gate_rows = _gate_rows()
+        if gate_rows:
+            pills = " ".join(
+                ui.pill(
+                    f"Signal {r['signal']} {r['status']}",
+                    "green" if r["status"] == "LIVE" else "grey",
+                )
+                for r in gate_rows
+            )
+            st.markdown(pills, unsafe_allow_html=True)
+            for r in gate_rows:
+                ui.muted(f"{r['signal']}: {r['reason']}")
         bar = st.slider(
             "Explore a certainty bar",
             0.10,
@@ -438,7 +486,7 @@ def _explore(c: AppConfig) -> None:
             st.dataframe(
                 pl.DataFrame(rows),
                 hide_index=True,
-                use_container_width=True,
+                width="stretch",
                 column_config={
                     k: st.column_config.NumberColumn(format="percent")
                     for k in ("Precision", "Lower bound")
@@ -480,19 +528,10 @@ def render() -> None:
     assert current is not None
     when = history[0]["created_at"].astimezone() if history else None
     ui.header(
-        "Settings", f"Version {version}" + (f" · saved {when:%a %d %b, %H:%M}" if when else "")
+        "Settings",
+        "Change your inputs, then save: this week's plan updates at once. "
+        f"Version {version}" + (f" · saved {when:%d %b, %H:%M}" if when else ""),
     )
-
-    gate_rows = _gate_rows()
-    if gate_rows:
-        pills = " ".join(
-            ui.pill(
-                f"Signal {r['signal']} {r['status']}", "green" if r["status"] == "LIVE" else "grey"
-            )
-            for r in gate_rows
-        )
-        reasons = " · ".join(f"{r['signal']}: {r['reason']}" for r in gate_rows)
-        ui.hero("Signal status", reasons, pills)
 
     if "settings_result" in st.session_state:
         ok, lines = st.session_state.pop("settings_result")
@@ -529,7 +568,6 @@ def render() -> None:
         st.rerun()
 
     _explore(current)
-    _goal(current)
 
     ui.section("Change history")
     with st.container(border=True):

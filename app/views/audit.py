@@ -85,7 +85,7 @@ def render() -> None:
             ]
         ),
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
         column_config={
             c: st.column_config.NumberColumn(format="percent")
             for c in ("Precision", "Lower bound", "Claim")
@@ -110,7 +110,7 @@ def render() -> None:
     ui.section("Your actions")
     if audit.actions:
         ui.muted(" · ".join(f"{k}: {v}" for k, v in sorted(audit.action_counts.items())))
-        st.dataframe(pl.DataFrame(audit.actions), hide_index=True, use_container_width=True)
+        st.dataframe(pl.DataFrame(audit.actions), hide_index=True, width="stretch")
     else:
         ui.muted("No actions logged in this period.")
 
@@ -124,7 +124,7 @@ def render() -> None:
 
     ui.section("Calibration (live, matured weeks)")
     if audit.calibration:
-        st.dataframe(pl.DataFrame(audit.calibration), hide_index=True, use_container_width=True)
+        st.dataframe(pl.DataFrame(audit.calibration), hide_index=True, width="stretch")
     else:
         ui.muted("No matured live scores yet: a week's outcome is known 5 trading days later.")
 
