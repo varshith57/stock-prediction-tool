@@ -22,7 +22,7 @@ from stockapp.plan.rules import (
     exit_rules,
     market_regime,
 )
-from stockapp.plan.store import PlanLocked, actions_for, latest_plan, log_action, save_plan
+from stockapp.plan.store import actions_for, latest_plan, log_action, save_plan
 from stockapp.portfolio.history import value_history
 from stockapp.portfolio.ledger import QuantityEvent, Txn
 
@@ -219,17 +219,24 @@ def test_telegram_summary_never_carries_amounts():
     assert "Sell: BBB" in text and "Buy: AAA" in text
 
 
-def test_plan_storage_locks_after_actions(db: psycopg.Connection):
+def test_rebuilt_plan_keeps_actions_and_archives_the_old_version(db: psycopg.Connection):
     p = plan(gates=OFF)
     pid = save_plan(db, p, "fv")
     assert latest_plan(db)["plan_id"] == pid
-    pid2 = save_plan(db, p, "fv")  # rebuild before any action: replaced
-    log_action(db, pid2, "SELL:X", "done")
-    log_action(db, pid2, "SELL:X", "partly", "no cash")
-    assert actions_for(db, pid2)["SELL:X"]["action"] == "partly"
-    with pytest.raises(PlanLocked):
-        save_plan(db, p, "fv")
-    assert isinstance(latest_plan(db)["built_at"], datetime)
+    log_action(db, pid, "SELL:X", "done")
+    log_action(db, pid, "SELL:X", "partly", "no cash")
+    assert actions_for(db, pid)["SELL:X"]["action"] == "partly"
+    # settings changed -> the week's plan is rebuilt in place
+    pid2 = save_plan(db, plan(gates=OFF, budget=99.0), "fv", settings_version=7)
+    assert pid2 == pid
+    assert actions_for(db, pid)["SELL:X"]["reason"] == "no cash"
+    row = latest_plan(db)
+    assert row["settings_version"] == 7 and row["payload"]["budget_available"] == 99.0
+    archived = db.execute(
+        "SELECT payload FROM weekly_plan_revisions WHERE plan_id = %s", (pid,)
+    ).fetchall()
+    assert len(archived) == 1 and archived[0]["payload"]["budget_available"] == 10_000.0
+    assert isinstance(row["built_at"], datetime)
 
 
 def test_each_position_is_capped_at_the_stock_weight():

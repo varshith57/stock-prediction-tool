@@ -116,6 +116,10 @@ class ScheduleConfig(_Strict):
     weekly_plan: str
 
 
+class GoalConfig(_Strict):
+    target_monthly_return: float | None = Field(default=None, gt=-1, lt=10)
+
+
 class AppConfig(_Strict):
     version: int
     budget: BudgetConfig
@@ -127,6 +131,7 @@ class AppConfig(_Strict):
     tax: TaxConfig
     alerts: AlertsConfig
     schedule: ScheduleConfig
+    goal: GoalConfig = GoalConfig()
 
 
 def load_app_config(
@@ -156,6 +161,18 @@ def get_settings() -> Settings:
     return Settings()
 
 
-@lru_cache
-def get_app_config() -> AppConfig:
+def file_config() -> AppConfig:
+    """Code defaults (config/defaults.yaml) plus the legacy local overrides file. Used only to seed
+    the first settings version; afterwards the app's Settings page (Postgres) is the source."""
     return load_app_config()
+
+
+def get_app_config() -> AppConfig:
+    """Effective settings: the latest version saved in the app, else the file defaults. Read on
+    every call (cheap), so a change in Settings applies everywhere at once."""
+    try:
+        from stockapp.settings_store import latest_config
+
+        return latest_config() or file_config()
+    except Exception:
+        return file_config()

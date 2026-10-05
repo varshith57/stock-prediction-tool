@@ -27,7 +27,8 @@ uv run stockapp features build && uv run stockapp models backtest && uv run stoc
 uv run stockapp plan build       # this week's plan (add --notify for the Telegram summary)
 uv run streamlit run app/streamlit_app.py
 uv run pytest                # tests (live ones skip without secrets)
-uv run stockapp config       # show product config
+uv run stockapp config       # show product config (edit it on the app's Settings screen)
+uv run stockapp retrain      # full rebuild after changing thresholds/window/universe size
 uv run stockapp telegram-test
 ```
 

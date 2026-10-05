@@ -62,3 +62,6 @@ alerts:
 schedule:                           # IST
   daily_run: "19:30"
   weekly_plan: "FRI 20:00"
+
+goal:
+  target_monthly_return: null       # optional: shown with its historical feasibility

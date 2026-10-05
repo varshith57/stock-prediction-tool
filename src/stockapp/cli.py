@@ -370,7 +370,7 @@ def _plan_build(args: argparse.Namespace) -> int:
     from stockapp.lake import Lake
     from stockapp.plan import inputs
     from stockapp.plan.engine import build_plan
-    from stockapp.plan.store import PlanLocked, save_plan
+    from stockapp.plan.store import save_plan
     from stockapp.portfolio import service
 
     lake, cfg, today = Lake.from_settings(), get_app_config(), date.today()
@@ -395,11 +395,7 @@ def _plan_build(args: argparse.Namespace) -> int:
             portfolio_value=portfolio_value,
             model_version=model_version,
         )
-        try:
-            plan_id = save_plan(conn, plan, FEATURE_VERSION)
-        except PlanLocked as exc:
-            print(f"Not saved: {exc}", file=sys.stderr)
-            return 1
+        plan_id = save_plan(conn, plan, FEATURE_VERSION)
     text = plan_summary(plan)
     print(f"plan {plan_id}: {text}")
     if args.notify:
@@ -461,6 +457,42 @@ def _schedule(args: argparse.Namespace) -> int:
         print("Installed and loaded:\n" + "\n".join(schedule.install()))
     else:
         print("Removed:\n" + "\n".join(schedule.uninstall() or ["(nothing installed)"]))
+    return 0
+
+
+def _retrain(_: argparse.Namespace) -> int:
+    """After a threshold/window/universe change: rebuild labels and features, re-run the
+    walk-forward backtest and gate, retrain, and rebuild this week's plan."""
+    from stockapp import pipeline
+    from stockapp.db import connect
+    from stockapp.features.pipeline import build_weekly_samples
+    from stockapp.lake import Lake
+    from stockapp.models.run import run_backtests, train_and_score
+
+    lake, cfg, today = Lake.from_settings(), get_app_config(), date.today()
+    steps = [
+        ("universe and quality", lambda: pipeline.rebuild_quality(lake, cfg, today)),
+        ("features and labels", lambda: f"{build_weekly_samples(lake, cfg, today).height} samples"),
+        (
+            "walk-forward backtest and gate",
+            lambda: ", ".join(
+                f"{s} {g.status}" for s, g in run_backtests(lake, cfg, today).gates.items()
+            ),
+        ),
+        ("final models", lambda: f"{train_and_score(lake, cfg, today).height} stocks scored"),
+    ]
+    try:
+        for i, (name, fn) in enumerate(steps, 1):
+            print(f"[{i}/{len(steps) + 1}] {name}...", flush=True)
+            print(f"      {fn()}", flush=True)
+        print(f"[{len(steps) + 1}/{len(steps) + 1}] weekly plan...", flush=True)
+        with connect() as conn:
+            plan, _ = pipeline.build_weekly_plan(conn, lake, cfg, today)
+        print(f"      {plan.action_count} action(s)", flush=True)
+    except Exception as exc:
+        print(f"RETRAIN FAILED: {type(exc).__name__}: {exc}", flush=True)
+        return 1
+    print("RETRAIN DONE", flush=True)
     return 0
 
 
@@ -557,6 +589,9 @@ def main(argv: list[str] | None = None) -> int:
     job.add_argument("name", choices=["daily", "weekly", "monthly"])
     job.add_argument("--date", type=_parse_day, help="run as if on this date (default today)")
     job.set_defaults(func=_job)
+    sub.add_parser(
+        "retrain", help="rebuild labels, backtest, gate and models after a change"
+    ).set_defaults(func=_retrain)
     sch = sub.add_parser("schedule", help="M9: launchd schedule on this Mac")
     sch.add_argument("action", choices=["show", "install", "uninstall"])
     sch.set_defaults(func=_schedule)

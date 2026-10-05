@@ -24,6 +24,12 @@ uv run streamlit run app/streamlit_app.py
 The four screens are This Week, Portfolio, Monthly Audit and Settings. Log Done / Partly / Skipped
 on each action. Add trades on Portfolio, or import your Kite holdings CSV there.
 
+The app runs only on this Mac (http://localhost:8501). Change budget, certainty bar, caps, costs
+and the goal on Settings: saving applies at once (the week's plan is rebuilt and signal status
+re-checked). Changing thresholds, the window or universe size needs a retrain, which you can start
+from the same screen (about an hour; it keeps the Mac awake). Every save is a version you can
+restore.
+
 ## When something goes wrong
 
 | Symptom | Check | Fix |

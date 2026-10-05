@@ -16,7 +16,6 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import date
 
-import duckdb
 import polars as pl
 import psycopg
 
@@ -260,9 +259,8 @@ def money_for_period(
 ) -> dict[str, float | None]:
     """Time-weighted return of the portfolio in the period vs a Nifty 50 portfolio fed the same
     cash flows, realised gain, estimated charges paid, and the worst drawdown in the period."""
-    from stockapp.adjust import adjusted_prices_sql
+    from stockapp.portfolio import service
     from stockapp.portfolio.costs import order_charges
-    from stockapp.portfolio.history import value_history
     from stockapp.portfolio.ledger import build_ledger
     from stockapp.portfolio.store import list_transactions, to_ledger_txns
     from stockapp.portfolio.valuation import quantity_events
@@ -276,21 +274,9 @@ def money_for_period(
             "charges": 0.0,
             "max_drawdown": None,
         }
-    est = lambda side, q, p: order_charges(side, q, p, cfg.costs).total  # noqa: E731
-    txns = to_ledger_txns(rows, est)
-    companies = sorted({t.company_id for t in txns})
-    ids = ", ".join(f"'{c}'" for c in companies)
-    prices = duckdb.sql(
-        f"SELECT company_id, trade_date, close FROM ({adjusted_prices_sql(lake)}) "
-        f"WHERE company_id IN ({ids})"
-    ).pl()
-    idx = lake.duckdb_glob("silver", "nse_index_close")
-    nifty = duckdb.sql(
-        f"""SELECT trade_date, close FROM read_parquet('{idx}', hive_partitioning = true)
-            WHERE lower(index_name) = 'nifty 50' ORDER BY 1"""
-    ).pl()
-    events = quantity_events(lake, companies)
-    h = value_history(txns, events, prices, nifty)
+    txns = to_ledger_txns(rows, lambda side, q, p: order_charges(side, q, p, cfg.costs).total)
+    events = quantity_events(lake, sorted({t.company_id for t in txns}))
+    h = service.history(conn, lake, cfg)
     period = h.filter((pl.col("trade_date") >= start) & (pl.col("trade_date") <= end))
     before = h.filter(pl.col("trade_date") < start).tail(1)
     if period.is_empty():

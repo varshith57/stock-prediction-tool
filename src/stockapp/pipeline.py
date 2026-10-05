@@ -110,7 +110,10 @@ def build_weekly_plan(conn: psycopg.Connection, lake: Lake, cfg: AppConfig, toda
         portfolio_value=value,
         model_version=model_version,
     )
-    plan_id = save_plan(conn, plan, FEATURE_VERSION)
+    from stockapp.settings_store import latest
+
+    row = latest(conn)
+    plan_id = save_plan(conn, plan, FEATURE_VERSION, row["version_id"] if row else None)
     return plan, plan_id
 
 

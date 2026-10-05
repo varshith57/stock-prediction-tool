@@ -27,3 +27,6 @@ dist/
 # source docs (originals kept locally; markdown copies live in docs/)
 *.docx
 .claude/
+
+# streamlit secrets (config.toml is committed: no secrets in it)
+.streamlit/secrets.toml

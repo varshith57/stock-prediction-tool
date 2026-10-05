@@ -1,0 +1,40 @@
+# Local-only, private app. Deploying to the web is a separate, explicit decision.
+
+[server]
+address = "127.0.0.1"        # only this Mac can open the app (not other devices on the network)
+headless = true
+runOnSave = false
+
+[browser]
+gatherUsageStats = false     # no usage telemetry to Streamlit
+
+[client]
+toolbarMode = "minimal"      # no Deploy button, no developer menu
+showErrorDetails = "type"    # errors show the type, not internals
+
+[theme]
+base = "light"
+primaryColor = "#EB1700"                 # one accent (DoorDash-style red), used sparingly
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F6F6F6"
+textColor = "#191919"
+linkColor = "#191919"
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+headingFont = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+headingFontWeights = [700, 700, 600, 600, 600, 600]
+baseFontSize = 15
+metricValueFontWeight = 700
+baseRadius = "0.75rem"
+buttonRadius = "0.6rem"
+borderColor = "#E6E6E6"
+dataframeBorderColor = "#EDEDED"
+dataframeHeaderBackgroundColor = "#FAFAFA"
+showWidgetBorder = true
+showSidebarBorder = true
+greenColor = "#00A86B"
+redColor = "#EB1700"
+chartCategoricalColors = ["#191919", "#EB1700", "#8A8A8A", "#00A86B", "#3D7BF7"]
+
+[theme.sidebar]
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F6F6F6"

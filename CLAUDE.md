@@ -22,7 +22,9 @@ Neon later) for app state, LightGBM, scikit-learn, Streamlit, pytest, ruff, GitH
 
 ## Layout
 - `src/stockapp/{ingest,quality,features,models,plan,portfolio,audit,alerts}`: library code
-- `src/stockapp/config.py`: secrets from env (`Settings`) and product config from `config/defaults.yaml`
+- `src/stockapp/config.py`: secrets from env (`Settings`) and product config. `get_app_config()`
+  reads the latest version saved from the app's Settings screen (`settings_store`, Postgres
+  `settings_versions`) and falls back to `config/defaults.yaml` + `config/local.yaml`.
 - `src/stockapp/cli.py`: `stockapp <command>` entry point
 - `app/`: Streamlit pages; `tests/` with `tests/fixtures/`; `migrations/`; `docs/`
 
@@ -87,7 +89,18 @@ Neon later) for app state, LightGBM, scikit-learn, Streamlit, pytest, ruff, GitH
   quantity events) -> `portfolio.valuation`. Every add/delete replays the ledger first
   (`portfolio.service`), so impossible states are refused. Charges/tax: `portfolio.costs`.
 - Holdings are private: never log rows or values, never put them in alerts or the lake.
-- Not yet built: value-vs-Nifty chart (M8), editing a transaction in place (delete + re-add).
+- Not yet built: editing a transaction in place (delete + re-add).
+
+## UI and settings
+- Local only: `.streamlit/config.toml` binds 127.0.0.1, hides the Deploy toolbar and sets the
+  theme. Don't deploy anywhere unless the user explicitly asks.
+- Shared look in `app/views/ui.py` (header, hero, kpis, pill, section); use it for new screens.
+- Settings are edited in the app and versioned (`settings_store`: save/diff/impact/restore).
+  On save, `impact()` decides: plan keys rebuild this week's plan (`save_plan` replaces the week's
+  plan and archives the old one in `weekly_plan_revisions`, keeping logged actions); gate keys
+  re-check LIVE/OFF on stored out-of-sample predictions (`models.run.reevaluate_gate`); label
+  keys (thresholds, window, universe size) need `stockapp retrain`, started from the screen in
+  the background (`background.py`, state in `data/run/retrain.json`).
 
 ## Features (M5)
 - `uv run stockapp features build` (about 16 s, 2.5 GB RAM) -> gold `weekly_samples` (last session
@@ -137,7 +150,7 @@ Neon later) for app state, LightGBM, scikit-learn, Streamlit, pytest, ruff, GitH
   on it. If a source can't be reached, say so; don't invent a format.
 - Secrets from environment variables only (.env locally, never committed).
 - The repo is **public**. Never commit market data, holdings, personal amounts (budget, portfolio
-  size, goals: those go in the gitignored `config/local.yaml`), or anything under data/. Real source
+  size, goals: those live in the app database via Settings), or anything under data/. Real source
   samples go in `tests/fixtures/private/` (gitignored); commit only small synthetic fixtures in the
   same format so CI can test parsers without redistributing exchange data.
 - Thresholds, caps and costs live in `config/defaults.yaml`, not code.

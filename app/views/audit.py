@@ -1,4 +1,4 @@
-"""Monthly Audit: what the app showed vs what happened, over a chosen period (last 4 weeks by
+"""Monthly audit: what the app showed vs what happened, over a chosen period (last 4 weeks by
 default). The verdict comes first; details follow. Lock a review to freeze it, or export it."""
 
 from __future__ import annotations
@@ -7,12 +7,13 @@ from datetime import date, timedelta
 
 import polars as pl
 import streamlit as st
+from views import ui
 from views.common import cfg, inr, lake
 
 from stockapp.audit.report import build_audit, lock_snapshot, money_for_period, to_markdown
 from stockapp.db import connect
 
-PERIODS = {"Last 4 weeks": 28, "12 weeks": 84, "6 months": 182, "1 year": 365}
+PERIODS = {"4 weeks": 28, "12 weeks": 84, "6 months": 182, "1 year": 365}
 
 
 def _pct(x: float | None) -> str:
@@ -20,24 +21,53 @@ def _pct(x: float | None) -> str:
 
 
 def render() -> None:
-    st.header("Monthly Audit")
-    choice = st.segmented_control("Period", [*PERIODS, "Custom"], default="Last 4 weeks")
+    head, picker = st.columns([1, 1], vertical_alignment="bottom")
+    with picker:
+        choice = st.segmented_control(
+            "Period", [*PERIODS, "Custom"], default="4 weeks", label_visibility="collapsed"
+        )
     end = date.today()
     if choice == "Custom":
         start, end = st.date_input("From / to", value=(end - timedelta(days=28), end))
     else:
-        start = end - timedelta(days=PERIODS.get(choice or "Last 4 weeks", 28))
+        start = end - timedelta(days=PERIODS.get(choice or "4 weeks", 28))
+    with head:
+        ui.header("Monthly audit", f"{start:%d %b %Y} to {end:%d %b %Y}")
 
     with connect() as conn:
         money = money_for_period(conn, lake(), cfg(), start, end)
         audit = build_audit(conn, lake(), cfg(), start, end, money)
 
-    st.subheader(audit.verdict)
-    st.caption(f"{start:%d %b %Y} to {end:%d %b %Y} · {audit.plans} weekly plan(s)")
+    ui.hero(audit.verdict, f"{audit.plans} weekly plan(s) in this period", "")
     for n in audit.notes:
         st.info(n)
 
-    st.markdown("#### Signal scorecard (vs the 90% claim)")
+    cards = {c.signal: c for c in audit.scorecards}
+    items = []
+    for s in ("A", "C"):
+        c = cards[s]
+        value = f"{c.precision:.0%}" if c.precision is not None else "—"
+        items.append(
+            (
+                f"Signal {s} precision",
+                value,
+                f"{c.correct}/{c.matured} matured · claim {c.claim:.0%}",
+                "grey",
+            )
+        )
+    items += [
+        (
+            "Portfolio return",
+            _pct(money.get("twr")),
+            "time-weighted",
+            ui.tone_for(money.get("twr")),
+        ),
+        ("Nifty 50, same flows", _pct(money.get("benchmark")), None, "grey"),
+        ("Worst drawdown", _pct(money.get("max_drawdown")), None, "grey"),
+    ]
+    ui.kpis(items)
+
+    ui.section("Signal scorecard")
     st.dataframe(
         pl.DataFrame(
             [
@@ -47,68 +77,101 @@ def render() -> None:
                     "Matured": c.matured,
                     "Correct": c.correct,
                     "Pending": c.pending,
-                    "Precision": f"{c.precision:.0%}" if c.precision is not None else "—",
-                    "Lower bound": f"{c.wilson_lb:.0%}" if c.wilson_lb is not None else "—",
-                    "Claim": f"{c.claim:.0%}",
+                    "Precision": c.precision,
+                    "Lower bound": c.wilson_lb,
+                    "Claim": c.claim,
                 }
                 for c in audit.scorecards
             ]
         ),
         hide_index=True,
+        use_container_width=True,
+        column_config={
+            c: st.column_config.NumberColumn(format="percent")
+            for c in ("Precision", "Lower bound", "Claim")
+        },
     )
-    st.markdown("#### Missed events")
-    for s, m in audit.missed.items():
-        what = "+10% weeks" if s == "A" else "-10% weeks"
-        st.write(
-            f"Signal {s}: {m['events']} {what} in the universe; {m['flagged']} flagged, "
-            f"{m['missed']} missed."
+
+    ui.section("Missed events")
+    with st.container(border=True):
+        for s, m in audit.missed.items():
+            what = "+10% weeks" if s == "A" else "-10% weeks"
+            st.markdown(
+                f'<div class="sa-row" style="padding:.2rem 0"><span><b>Signal {s}</b> · '
+                f"{m['events']} {what} in the universe</span><span class='sa-muted'>"
+                f"{m['flagged']} flagged · {m['missed']} missed</span></div>",
+                unsafe_allow_html=True,
+            )
+        ui.muted(
+            f"With a {cfg().signals.certainty_bar:.0%} bar most events are expected to be "
+            "missed; recall is shown honestly."
         )
-    st.caption("Recall is reported honestly: with a 90% bar most events are expected to be missed.")
 
-    st.markdown("#### Your actions")
+    ui.section("Your actions")
     if audit.actions:
-        st.write(", ".join(f"{k}: {v}" for k, v in sorted(audit.action_counts.items())))
-        st.dataframe(pl.DataFrame(audit.actions), hide_index=True)
+        ui.muted(" · ".join(f"{k}: {v}" for k, v in sorted(audit.action_counts.items())))
+        st.dataframe(pl.DataFrame(audit.actions), hide_index=True, use_container_width=True)
     else:
-        st.caption("No actions logged in this period.")
+        ui.muted("No actions logged in this period.")
 
-    st.markdown("#### Money")
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Portfolio (time-weighted)", _pct(money.get("twr")))
-    c2.metric("Nifty 50, same cash flows", _pct(money.get("benchmark")))
-    c3.metric("Worst drawdown", _pct(money.get("max_drawdown")))
-    st.caption(
+    ui.section("Money")
+    ui.muted(
         f"Realised gain {inr(money.get('realised'))} · charges paid "
         f"{inr(money.get('charges'), 2)}. "
-        "Nifty 50 is the price index (total-return data isn't available yet), so the "
-        "benchmark is slightly understated."
+        "The Nifty 50 comparison uses the price index (no dividends), so it slightly understates "
+        "the benchmark."
     )
 
-    st.markdown("#### Calibration (live, matured weeks only)")
+    ui.section("Calibration (live, matured weeks)")
     if audit.calibration:
-        st.dataframe(pl.DataFrame(audit.calibration), hide_index=True)
+        st.dataframe(pl.DataFrame(audit.calibration), hide_index=True, use_container_width=True)
     else:
-        st.caption(
-            "No matured live scores in this period yet (a week's outcome is known after 5 "
-            "trading days)."
+        ui.muted("No matured live scores yet: a week's outcome is known 5 trading days later.")
+
+    ui.section("Data and model health")
+    hlt = audit.health
+    gates = hlt.get("gates", {})
+    ui.kpis(
+        [
+            ("Data quality (min)", f"{hlt.get('quality_min') or 0:.0f}/100", None, "grey"),
+            (
+                "Unresolved failures",
+                str(hlt.get("failures_unresolved", 0)),
+                f"{hlt.get('failed_attempts_retried', 0)} retried OK",
+                "grey",
+            ),
+            (
+                "Open quarantine",
+                f"{hlt.get('open_quarantine_block', 0)} block",
+                f"{hlt.get('open_quarantine_warn', 0)} warning(s)",
+                "grey",
+            ),
+            (
+                "Signals",
+                " · ".join(f"{s} {g}" for s, g in sorted(gates.items())) or "—",
+                None,
+                "grey",
+            ),
+        ]
+    )
+
+    ui.section("Proposed changes")
+    with st.container(border=True):
+        for p in audit.proposals:
+            st.markdown(f"- {p}")
+        ui.muted(
+            "Proposals are never applied automatically: change Settings yourself if you agree."
         )
 
-    st.markdown("#### Data and model health")
-    st.write(" · ".join(f"{k.replace('_', ' ')}: {v}" for k, v in audit.health.items()))
-
-    st.markdown("#### Proposed changes")
-    for p in audit.proposals:
-        st.write(f"- {p}")
-    st.caption("Proposals are never applied automatically.")
-
-    a, b = st.columns(2)
-    if a.button("Lock this audit"):
+    a, b, _ = st.columns([1, 1, 3])
+    if a.button("Lock this audit", icon=":material/lock:"):
         with connect() as conn:
             sid = lock_snapshot(conn, audit)
         st.success(f"Locked as snapshot {sid}.")
     b.download_button(
-        "Export (Markdown)",
+        "Export",
         to_markdown(audit),
         file_name=f"audit_{start}_{end}.md",
         mime="text/markdown",
+        icon=":material/download:",
     )

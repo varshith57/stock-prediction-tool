@@ -113,6 +113,34 @@ def plan_kite_import(lake: Lake, parsed: ParsedHoldings) -> ImportPlan:
     return ImportPlan(ready, unmatched)
 
 
+def history(conn: psycopg.Connection, lake: Lake, cfg: AppConfig):
+    """Daily portfolio value, time-weighted index and a same-cash-flows Nifty 50 benchmark
+    (``portfolio.history.value_history``), or an empty frame when there are no trades."""
+    import duckdb
+    import polars as pl
+
+    from stockapp.adjust import adjusted_prices_sql
+    from stockapp.portfolio.history import value_history
+
+    rows = store.list_transactions(conn)
+    txns = store.to_ledger_txns(rows, _estimator(cfg))
+    if not txns:
+        return value_history([], [], pl.DataFrame(), pl.DataFrame())
+    companies = sorted({t.company_id for t in txns})
+    ids = ", ".join(f"'{c}'" for c in companies)
+    prices = duckdb.sql(
+        f"SELECT company_id, trade_date, close FROM ({adjusted_prices_sql(lake)}) "
+        f"WHERE company_id IN ({ids})"
+    ).pl()
+    idx = lake.duckdb_glob("silver", "nse_index_close")
+    nifty = duckdb.sql(
+        f"""SELECT trade_date, close FROM read_parquet('{idx}', hive_partitioning = true)
+            WHERE lower(index_name) = 'nifty 50' ORDER BY 1"""
+    ).pl()
+    return value_history(txns, quantity_events(lake, companies), prices, nifty)
+
+
 __all__ = [
-    "ImportPlan", "LedgerError", "Loaded", "add", "check_new", "delete", "load", "plan_kite_import",
+    "ImportPlan", "LedgerError", "Loaded", "add", "check_new", "delete", "history", "load",
+    "plan_kite_import",
 ]  # fmt: skip

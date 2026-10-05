@@ -169,3 +169,55 @@ def train_and_score(lake: Lake, cfg: AppConfig, today: date) -> pl.DataFrame:
     )
     lake.write_partition("gold", "latest_scores", "trade_date", latest_day.isoformat(), out)
     return out
+
+
+def stored_predictions(lake: Lake, signal: str) -> pl.DataFrame:
+    # Read only this signal's partition: A and C store different columns (C has no gain model).
+    part = lake.table_dir("gold", "oos_predictions") / f"signal={signal}"
+    files = sorted(part.glob("*.parquet")) if part.is_dir() else []
+    if not files:
+        return pl.DataFrame()
+    return pl.read_parquet(files, hive_partitioning=False).drop("signal", strict=False)
+
+
+def reevaluate_gate(lake: Lake, cfg: AppConfig, today: date) -> dict[str, GateResult]:
+    """Re-check LIVE/OFF with the current settings on the stored out-of-sample predictions (no
+    retraining): used when the certainty bar or gate rules change in Settings."""
+    gate_cfg, gates = cfg.signals.gate, {}
+    for signal in SIGNALS:
+        preds = stored_predictions(lake, signal)
+        if preds.is_empty():
+            continue
+        cap = cfg.signals.max_opportunities if signal == "A" else None
+        gates[signal] = evaluate_gate(
+            preds,
+            signal,
+            min_precision=cfg.signals.certainty_bar,
+            min_signals=gate_cfg.min_signals,
+            min_lower_bound=gate_cfg.min_wilson_lower_bound,
+            max_per_week=cap,
+            rank_by="expected_gain" if signal == "A" else "p",
+        )
+    if gates:
+        lake.write_partition(
+            "gold",
+            "signal_gate",
+            "built",
+            today.isoformat(),
+            pl.DataFrame([g.as_row() for g in gates.values()]).with_columns(
+                pl.lit(datetime.now(UTC)).alias("evaluated_at"),
+                pl.lit(FEATURE_VERSION).alias("feature_version"),
+                pl.lit(pipeline_version()).alias("pipeline_version"),
+            ),
+        )
+    return gates
+
+
+def precision_at_bar(lake: Lake, cfg: AppConfig, signal: str, bar: float) -> dict | None:
+    """What the validated history says about signals at ``bar`` (shown live in Settings)."""
+    preds = stored_predictions(lake, signal)
+    if preds.is_empty():
+        return None
+    cap = cfg.signals.max_opportunities if signal == "A" else None
+    curve = precision_curve(preds, cap, "expected_gain" if signal == "A" else "p", cutoffs=(bar,))
+    return curve.row(0, named=True)

@@ -1,13 +1,14 @@
-"""The small data-health line in the header: quiet when all is well, explicit when it isn't."""
+"""Data status: a quiet line in the sidebar when all is well, a red banner when it isn't."""
 
 from __future__ import annotations
 
 import polars as pl
 import streamlit as st
+from views import ui
 from views.common import cfg, lake
 
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=300)
 def _status() -> dict:
     lk = lake()
     out: dict = {"as_of": None, "score": None}
@@ -19,18 +20,26 @@ def _status() -> dict:
     return out
 
 
-def header_line() -> None:
+def sidebar_status() -> None:
     s = _status()
     if s["as_of"] is None:
-        st.warning("No data quality results yet: run `uv run stockapp quality build`.")
+        st.markdown(ui.pill("No data yet", "amber"), unsafe_allow_html=True)
         return
-    minimum = cfg().data.min_quality_score
-    if s["score"] < minimum:
+    ok = s["score"] >= cfg().data.min_quality_score
+    st.markdown(
+        ui.pill(f"Data {'OK' if ok else 'issue'} · {s['score']:.0f}/100", "green" if ok else "red")
+        + f'<div class="sa-foot" style="margin-top:.4rem">NSE close of {s["as_of"]:%a %d %b %Y}'
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def quality_alert() -> None:
+    s = _status()
+    if s["as_of"] is None:
+        st.warning("No data yet: run `uv run stockapp quality build`.")
+    elif s["score"] < cfg().data.min_quality_score:
         st.error(
-            f"Data quality {s['score']:.0f}/100 on {s['as_of']:%a %d %b} is below {minimum:g}: "
-            "NO SIGNAL until it recovers."
-        )
-    else:
-        st.caption(
-            f"Data OK · quality {s['score']:.0f}/100 · NSE close of {s['as_of']:%a %d %b %Y}"
+            f"Data quality {s['score']:.0f}/100 on {s['as_of']:%a %d %b} is below "
+            f"{cfg().data.min_quality_score:g}: NO SIGNAL until it recovers."
         )
