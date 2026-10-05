@@ -351,6 +351,21 @@ def _models_compare(args: argparse.Namespace) -> int:
     return 0
 
 
+def _models_money(_: argparse.Namespace) -> int:
+    from stockapp.lake import Lake
+    from stockapp.models.money import run_money_backtest
+
+    run = run_money_backtest(Lake.from_settings(), get_app_config(), date.today())
+    for r in run.table.iter_rows(named=True):
+        x = "-" if r["xirr"] is None else f"{r['xirr']:+.1%}"
+        print(
+            f"{r['scenario'][:24]:<24} {r['strategy']:<28} end Rs {r['final_value']:>12,.0f}  "
+            f"in Rs {r['contributed']:>10,.0f}  XIRR {x:>7}  worst {r['max_drawdown']:+.1%}"
+        )
+    print(f"report: {run.report_path}")
+    return 0
+
+
 def _models_train(_: argparse.Namespace) -> int:
     from stockapp.lake import Lake
     from stockapp.models.run import train_and_score
@@ -598,6 +613,9 @@ def main(argv: list[str] | None = None) -> int:
     mc.add_argument("--crash", type=float, help="drop to test (default: same as --gain)")
     mc.add_argument("--window", type=int, help="market days for the move, e.g. 20")
     mc.set_defaults(func=_models_compare)
+    mod_sub.add_parser(
+        "money", help="would following the app have made money? costs, tax, vs the index"
+    ).set_defaults(func=_models_money)
     mod_sub.add_parser("train", help="fit final models and score the latest week").set_defaults(
         func=_models_train
     )

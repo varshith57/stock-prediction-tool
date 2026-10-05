@@ -127,6 +127,11 @@ Neon later) for app state, LightGBM, scikit-learn, Streamlit, pytest, ruff, GitH
   CatBoost, bootstrapped extra trees, logistic; each isotonic-calibrated, averaged, calibrated
   again). `uv run stockapp models compare` judges the group and every member on the same
   walk-forward (report only, no gold writes). Switch in Settings, then retrain.
+- `uv run stockapp models money` (~45 s): `strategy.simulate` follows the app's trade rules on the
+  stored out-of-sample A picks (next-open fills, slippage, Zerodha charges, FY short-term tax)
+  for several cutoffs vs the same rupees in Nifty 50/500; report in data/reports/. Result
+  2026-10-05: no robust edge (beats Nifty 500 only with 15 bps slippage and spare cash in the
+  index; at 50 bps it lags; worst falls -42% to -59% vs -38%).
 - The gate (`models/gate.py`) uses out-of-sample predictions only, counts only what would be shown
   (A: 5/week by expected gain), and never lowers the bar. Both signals are OFF as of 2026-10-04;
   see docs/MODEL_CARD.md for numbers and known limits (overconfident tails).
