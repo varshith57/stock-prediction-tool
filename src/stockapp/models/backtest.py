@@ -57,11 +57,14 @@ class Backtest:
 
 def run_backtest(samples: pl.DataFrame, features: list[str], label: str, first_test: date,
                  with_quantile: bool = False, kind: str = "lightgbm",
-                 embargo_days: int = EMBARGO_DAYS) -> Backtest:  # fmt: skip
+                 embargo_days: int = EMBARGO_DAYS, on_fold=None) -> Backtest:  # fmt: skip
     usable = samples.filter(~pl.col("blocked"))
     last = usable.filter(pl.col(label).is_not_null())["trade_date"].max()
     results, frames = [], []
-    for fold in make_folds(first_test, last, embargo_days=embargo_days):
+    folds = make_folds(first_test, last, embargo_days=embargo_days)
+    for i, fold in enumerate(folds, 1):
+        if on_fold is not None:
+            on_fold(i, len(folds), fold)
         r = run_fold(usable, fold, features, label, kind)
         if r is None:
             continue

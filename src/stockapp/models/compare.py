@@ -9,7 +9,7 @@ to the group is a separate, deliberate step (Settings, then retrain).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import polars as pl
@@ -101,8 +101,11 @@ def compare_models(
     for signal, label in SIGNALS.items():
         a = signal == "A"
         bt = run_backtest(
-            samples, FEATURE_COLUMNS, label, FIRST_TEST, a, kind="ensemble", embargo_days=embargo
-        )
+            samples, FEATURE_COLUMNS, label, FIRST_TEST, a, kind="ensemble", embargo_days=embargo,
+            on_fold=lambda i, n, f, s=signal: print(
+                f"[{datetime.now():%H:%M}] signal {s}: quarter {i}/{n} ({f.test_start})", flush=True
+            ),
+        )  # fmt: skip
         base_rate = float(bt.predictions["label"].cast(pl.Float64).mean())
         tables.append(
             score_table(bt.predictions, signal, cfg).with_columns(
