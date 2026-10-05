@@ -107,9 +107,8 @@ def run_money_backtest(lake: Lake, cfg: AppConfig, today: date) -> MoneyRun:
         window=s.window_trading_days,
         slippage_bps=cfg.costs.slippage_bps,
         stcg_rate=cfg.tax.stcg_rate,
-        # Off: with only cash after a bad stretch, a pause measured from the all-time peak can
-        # never lift, which freezes buying for good and would hide the picks' real record.
-        drawdown_pause=None,
+        drawdown_pause=cfg.risk.drawdown_pause,
+        drawdown_lookback=cfg.risk.drawdown_lookback_days,
     )
     scenarios = {
         f"₹{cfg.budget.weekly_inr:,.0f} a week (your budget)": base,
@@ -169,8 +168,9 @@ def _report(lake, cfg, today, table: pl.DataFrame, start: date, end: date) -> Pa
         f"{cfg.risk.max_stock_weight:.0%}, minimum position ₹{cfg.budget.min_position_inr:,.0f}, "
         f"exit at +{s.gain_threshold:.0%}, the {cfg.risk.stop_atr_multiple:g} x ATR stop-loss or "
         f"after {s.window_trading_days} days; next-open fills, {cfg.costs.slippage_bps:g} bps "
-        f"slippage, Zerodha charges, {cfg.tax.stcg_rate:.0%} short-term tax; the drawdown pause "
-        "is off (from an all-cash portfolio it can never lift). 'Spare cash in Nifty 500' rows "
+        f"slippage, Zerodha charges, {cfg.tax.stcg_rate:.0%} short-term tax; new buys pause "
+        f"while {-cfg.risk.drawdown_pause:.0%} below the best value of the last "
+        f"{cfg.risk.drawdown_lookback_days} market days. 'Spare cash in Nifty 500' rows "
         "keep uninvested money in the index between trades, moved at no cost or tax "
         "(optimistic). Index rows: same "
         "rupees on the same days into the price index (no dividends: understates a real index "

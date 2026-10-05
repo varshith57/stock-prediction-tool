@@ -146,9 +146,13 @@ class Drawdown:
 
 def drawdown_state(values: list[float], cfg: AppConfig) -> Drawdown:
     """``values``: a time-weighted portfolio index (oldest first; see
-    ``portfolio.history``). Raw value would hide losses behind new contributions."""
+    ``portfolio.history``). Raw value would hide losses behind new contributions.
+
+    The peak is the best value in the last ``drawdown_lookback_days`` market days: measured from
+    the all-time peak, a portfolio that went to cash could never climb back, so a pause on new
+    buys would never lift."""
     if not values:
         return Drawdown(None, False, False)
-    peak = max(values)
+    peak = max(values[-cfg.risk.drawdown_lookback_days :])
     dd = values[-1] / peak - 1 if peak > 0 else 0.0
     return Drawdown(dd, dd <= cfg.risk.drawdown_review, dd <= cfg.risk.drawdown_pause)

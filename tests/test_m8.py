@@ -182,6 +182,9 @@ def test_regime_and_drawdown():
     d = drawdown_state([1.0, 1.2, 1.04], CFG)  # -13.3% from the peak
     assert d.pause_buys and d.review
     assert drawdown_state([], CFG).from_peak is None
+    # an old peak drops out of the window, so an all-cash portfolio's pause can lift
+    old = [2.0] + [1.0] * CFG.risk.drawdown_lookback_days
+    assert drawdown_state(old, CFG).from_peak == 0.0 and not drawdown_state(old, CFG).pause_buys
 
 
 def test_value_history_twr_ignores_contributions_and_follows_bonus():

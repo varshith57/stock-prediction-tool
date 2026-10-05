@@ -116,3 +116,21 @@ def test_spare_cash_can_ride_the_index_between_trades():
         _signals("UP", s), _prices("UP", s, 0.0), s, replace(never, idle_in_index=True), COSTS, idx
     )
     assert parked.metrics["final_value"] == pytest.approx(1000.0 * 1.01**29)
+
+
+def test_drawdown_pause_lifts_once_the_old_peak_leaves_the_window():
+    from dataclasses import replace
+
+    s = _sessions(date(2021, 1, 4), 80)
+    closes = [100 * 0.97**i for i in range(12)] + [100 * 0.97**11] * 68  # falls, then flat
+    px = pl.DataFrame(
+        {"company_id": "X", "trade_date": s, "open": closes, "close": closes, "atr": 2.0}
+    )
+    p = Params(
+        cutoff=0.2, weekly=0.0, initial=100_000.0, max_stock_weight=1.0, min_position=1000.0,
+        drawdown_pause=-0.05, drawdown_lookback=10,
+    )  # fmt: skip
+    rolling = simulate(_signals("X", s), px, s, p, COSTS)
+    locked = simulate(_signals("X", s), px, s, replace(p, drawdown_lookback=10_000), COSTS)
+    assert len(locked.trades) == 1  # the first loss pauses buying for good
+    assert len(rolling.trades) > 1  # the pause lifts after 10 market days

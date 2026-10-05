@@ -27,7 +27,7 @@ traded at the time, which only matters for the flat DP charge.
 from __future__ import annotations
 
 import math
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -51,6 +51,7 @@ class Params:
     slippage_bps: float = 15.0
     stcg_rate: float = 0.20
     drawdown_pause: float | None = -0.12  # None: never pause
+    drawdown_lookback: int = 126  # market days for the drawdown peak (as the app)
     use_regime: bool = True
     idle_in_index: bool = False  # spare cash earns the index (passed to simulate) between trades
 
@@ -175,7 +176,8 @@ def simulate(
     trades: list[Trade] = []
     realised: dict[int, float] = defaultdict(float)
     carry, fy = 0.0, financial_year(sessions[0])
-    twr, peak_twr, prev_value = 1.0, 1.0, None
+    twr, prev_value = 1.0, None
+    recent: deque[float] = deque(maxlen=params.drawdown_lookback)
     last_close: dict[str, float] = {}
     rows = []
 
@@ -249,7 +251,7 @@ def simulate(
         if prev_value and prev_value > 0:
             twr *= (value - flow) / prev_value
         prev_value = value
-        peak_twr = max(peak_twr, twr)
+        recent.append(twr)
 
         for cid, pos in held.items():
             if cid in to_sell:
@@ -269,7 +271,9 @@ def simulate(
                 to_sell[cid] = "time"
 
         # signal day: decide next morning's buys
-        paused = params.drawdown_pause is not None and twr / peak_twr - 1 <= params.drawdown_pause
+        paused = (
+            params.drawdown_pause is not None and twr / max(recent) - 1 <= params.drawdown_pause
+        )
         if d in signal_days and not paused and not (params.use_regime and d in stress_days):
             left = cash
             cap = max(params.max_stock_weight * value, params.min_position)

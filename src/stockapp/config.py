@@ -87,6 +87,9 @@ class RiskConfig(_Strict):
     trailing_stop_atr_multiple: float | None = Field(default=None, gt=0)
     drawdown_review: float = Field(lt=0)
     drawdown_pause: float = Field(lt=0)
+    # Drawdown is measured from the best value in this many recent market days (~6 months), so
+    # a pause can lift even when the portfolio is all cash and can't climb back to an old peak.
+    drawdown_lookback_days: int = Field(default=126, ge=5)
     # Investments (not trades) are never auto-sold: past this loss from cost they get a review note.
     investment_review_loss: float = Field(default=0.15, gt=0, lt=1)
     stress_vix_percentile: float = Field(gt=0, lt=1)
