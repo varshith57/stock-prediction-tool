@@ -400,6 +400,19 @@ def _results_backfill(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
+def _fundamentals_backfill(args: argparse.Namespace) -> int:
+    from stockapp.db import connect
+    from stockapp.fundamentals import backfill
+    from stockapp.lake import Lake
+
+    def log(msg: str) -> None:
+        print(f"[{datetime.now():%H:%M}] {msg}", flush=True)
+
+    with connect() as conn:
+        backfill(conn, Lake.from_settings(), interval=args.interval, limit=args.limit, log=log)
+    return 0
+
+
 def _safety_build(_: argparse.Namespace) -> int:
     from datetime import datetime
 
@@ -658,6 +671,14 @@ def main(argv: list[str] | None = None) -> int:
     rb.add_argument("--force", action="store_true", help="refetch months already loaded")
     rb.add_argument("--interval", type=float, default=1.5)
     rb.set_defaults(func=_results_backfill)
+
+    fu = sub.add_parser("fundamentals", help="quarterly results figures from XBRL filings")
+    fb = fu.add_subparsers(dest="fundamentals_command", required=True).add_parser(
+        "backfill", help="download and parse (resumable; ~40k files, ~11 h at 1/s)"
+    )
+    fb.add_argument("--limit", type=int, help="stop after this many files (for a trial)")
+    fb.add_argument("--interval", type=float, default=1.0, help="seconds between requests")
+    fb.set_defaults(func=_fundamentals_backfill)
 
     sf = sub.add_parser("safety", help="monthly drop warnings for holdings")
     sf.add_subparsers(dest="safety_command", required=True).add_parser(

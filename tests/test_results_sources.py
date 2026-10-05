@@ -99,6 +99,7 @@ def test_integrated_filings_parse_and_short_pages_are_quarantined():
         "symbol": "ABC", "qe_Date": "30-JUN-2025", "broadcast_Date": "31-Jul-2025 22:59:52",
         "consolidated": "Consolidated", "audited": "Un-Audited", "xbrl": "x.xml",
         "ixbrl": "x.html", "seq_Id": "7", "cmName": "ABC Ltd",
+        "type": "Integrated Filing- Financials", "type_Sub": "Original",
     }  # fmt: skip
     c = _conn(NseIntegratedResults)
     full = json.dumps({"data": [row], "totalCount": 1}).encode()

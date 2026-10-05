@@ -180,14 +180,16 @@ class NseIntegratedResults(_MonthlyJson):
 
     The API pages 20 rows by default and reports ``totalCount``; ``size`` asks for everything in
     one call, and a short page fails the format check rather than silently losing filings. No ISIN
-    here: companies are matched by symbol as of the publication date."""
+    here: companies are matched by symbol as of the publication date. The feed mixes results
+    ("Integrated Filing- Financials") with governance filings, and originals with revisions:
+    results-date features use original Financials only."""
 
     source_id = "nse_integrated_results"
     dataset = "nse_integrated_results"
     api_path = "integrated-filing-results?index=equities&period=Quarterly&size=10000"
     required = (
         "symbol", "qe_Date", "broadcast_Date", "consolidated", "audited", "xbrl", "ixbrl",
-        "seq_Id",
+        "seq_Id", "type", "type_Sub",
     )  # fmt: skip
     known_fingerprints: ClassVar[frozenset[str]] = frozenset(
         {header_fingerprint(",".join(required)), header_fingerprint(EMPTY)}
@@ -228,6 +230,9 @@ class NseIntegratedResults(_MonthlyJson):
             pl.col("xbrl").str.strip_chars().alias("xbrl_url"),
             pl.col("ixbrl").str.strip_chars().alias("ixbrl_url"),
             pl.col("seq_Id").alias("seq_id"),
+            # "Integrated Filing- Financials" (results) or "...- Governance"; Original/Revision
+            pl.col("type").str.strip_chars().alias("filing_type"),
+            pl.col("type_Sub").str.strip_chars().alias("filing_sub"),
             pl.lit(month).alias("month"),
         )  # fmt: skip
 
@@ -247,6 +252,8 @@ IR_SCHEMA = {
     "xbrl_url": pl.String,
     "ixbrl_url": pl.String,
     "seq_id": pl.String,
+    "filing_type": pl.String,
+    "filing_sub": pl.String,
 }
 BM_SCHEMA = {
     "symbol": pl.String,

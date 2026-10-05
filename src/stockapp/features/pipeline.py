@@ -167,6 +167,11 @@ def add_event_features(lake: Lake, samples: pl.DataFrame, panel: pl.DataFrame) -
     if lake.has_table("silver", "nse_integrated_results"):
         integrated = map_symbol(
             lake.scan("silver", "nse_integrated_results")
+            # results only: governance filings come earlier and revisions later
+            .filter(
+                pl.col("filing_type").str.contains("(?i)financials")
+                & ~pl.col("filing_sub").str.contains("(?i)revision")
+            )
             .select("symbol", "period_to", "published_at")
             .collect(),
             symbol_map,
