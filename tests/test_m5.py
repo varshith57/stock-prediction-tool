@@ -16,6 +16,7 @@ import pytest
 
 from stockapp.features.build import (
     CROSS_SECTION,
+    EVENTS,
     FEATURE_COLUMNS,
     add_cross_section,
     compute_features,
@@ -23,6 +24,8 @@ from stockapp.features.build import (
     market_features,
 )
 from stockapp.features.checks import holdout_auc, shuffled_label_auc
+
+PRICE_COLUMNS = [c for c in FEATURE_COLUMNS if c not in EVENTS]  # events: see test_events.py
 
 
 def _sessions(n: int, start: date = date(2018, 1, 1)) -> list[date]:
@@ -139,7 +142,7 @@ def test_features_at_t_ignore_a_split_after_t():
     trunc = as_traded.filter(pl.col("trade_date") <= days[t_idx])
     a = compute_features(full, market).filter(pl.col("trade_date") == days[t_idx])
     b = compute_features(trunc, market).filter(pl.col("trade_date") == days[t_idx])
-    for col in [c for c in FEATURE_COLUMNS if c not in CROSS_SECTION]:
+    for col in [c for c in PRICE_COLUMNS if c not in CROSS_SECTION]:
         x, y = a[col][0], b[col][0]
         assert (x is None and y is None) or x == pytest.approx(y, rel=1e-9, abs=1e-12), col
 
@@ -154,7 +157,7 @@ def test_features_never_look_past_t():
         .filter(pl.col("trade_date") == t)
         .sort("company_id")
     )
-    for col in [c for c in FEATURE_COLUMNS if c not in CROSS_SECTION and c != "breadth_50"]:
+    for col in [c for c in PRICE_COLUMNS if c not in CROSS_SECTION and c != "breadth_50"]:
         np.testing.assert_allclose(
             full[col].fill_null(np.nan).to_numpy(), cut[col].fill_null(np.nan).to_numpy(),
             rtol=1e-9, err_msg=col,
@@ -182,9 +185,9 @@ def _split(s: pl.DataFrame) -> date:
 @pytest.mark.parametrize("label", ["label_a", "label_c"])
 def test_no_edge_on_a_random_walk(rw_samples: pl.DataFrame, label: str):
     assert rw_samples[label].mean() > 0.02  # enough events to measure
-    auc = holdout_auc(rw_samples, FEATURE_COLUMNS, label, _split(rw_samples))
+    auc = holdout_auc(rw_samples, PRICE_COLUMNS, label, _split(rw_samples))
     assert 0.42 < auc < 0.58, auc
-    shuffled = shuffled_label_auc(rw_samples, FEATURE_COLUMNS, label, _split(rw_samples))
+    shuffled = shuffled_label_auc(rw_samples, PRICE_COLUMNS, label, _split(rw_samples))
     assert 0.42 < shuffled < 0.58, shuffled
 
 
@@ -193,5 +196,5 @@ def test_a_leaky_feature_is_caught(rw_samples: pl.DataFrame):
     leaky = leaky.with_columns(
         pl.col("leak") + pl.Series(np.random.default_rng(0).normal(0, 0.3, leaky.height))
     )
-    auc = holdout_auc(leaky, [*FEATURE_COLUMNS, "leak"], "label_a", _split(leaky))
+    auc = holdout_auc(leaky, [*PRICE_COLUMNS, "leak"], "label_a", _split(leaky))
     assert auc > 0.8

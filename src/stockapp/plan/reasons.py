@@ -31,6 +31,9 @@ PHRASES: dict[str, tuple[str, str]] = {
     "big_move_count_60": ("{v} days with 5%+ moves in 3 months", "int"),
     "gap_freq_20": ("gapped 2%+ on {v} of days this month", "pct_abs"),
     "beta_60": ("beta {v}", "num"),
+    "days_since_results": ("results {v} days ago", "int"),
+    "results_ahead_days": ("results due in {v} days", "int"),
+    "last_results_reaction": ("{v} on its last results", "pct"),
 }
 
 

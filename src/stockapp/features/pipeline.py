@@ -104,6 +104,7 @@ def build_weekly_samples(lake: Lake, cfg: AppConfig, as_of: date) -> pl.DataFram
         )
     )
     samples = add_cross_section(samples)
+    samples = add_event_features(lake, samples, panel)
 
     blocked = blocked_samples(lake, samples, label_span_days(cfg.signals.window_trading_days))
     samples = samples.join(blocked, on=["company_id", "trade_date"], how="left").with_columns(
@@ -122,6 +123,63 @@ def build_weekly_samples(lake: Lake, cfg: AppConfig, as_of: date) -> pl.DataFram
     ):
         lake.write_partition("gold", DATASET, "year", str(year), part.drop("_y"))
     return samples
+
+
+def add_event_features(lake: Lake, samples: pl.DataFrame, panel: pl.DataFrame) -> pl.DataFrame:
+    """Results-date features (``features.events``); nulls when the sources aren't loaded."""
+    from stockapp.features.events import FEATURES as EVENTS
+    from stockapp.features.events import event_features, map_company, map_symbol
+    from stockapp.master import company_map_sql, company_prices_sql
+
+    if not (
+        lake.has_table("silver", "nse_board_meetings")
+        and lake.has_table("silver", "nse_financial_results")
+    ):
+        return samples.with_columns(pl.lit(None, pl.Float64).alias(c) for c in EVENTS)
+    isin_map = duckdb.sql(
+        f"SELECT DISTINCT isin, company_id FROM ({company_prices_sql(lake)}) WHERE isin IS NOT NULL"
+    ).pl()
+    symbol_map = duckdb.sql(company_map_sql(lake)).pl()
+    meetings = map_company(
+        lake.scan("silver", "nse_board_meetings")
+        .select(
+            "symbol",
+            "isin",
+            "meeting_date",
+            "announced_at",
+            # "Results" in 2016-17 payloads, "Financial Results" later
+            pl.col("purpose").str.contains("(?i)result").fill_null(False).alias("is_results"),
+        )
+        .collect(),
+        isin_map,
+        symbol_map,
+        "announced_at",
+    )
+    cols = ["company_id", "period_to", "published_at"]
+    filings = map_company(
+        lake.scan("silver", "nse_financial_results")
+        .select("symbol", "isin", "period_to", "published_at")
+        .collect(),
+        isin_map,
+        symbol_map,
+        "published_at",
+    ).select(cols)
+    if lake.has_table("silver", "nse_integrated_results"):
+        integrated = map_symbol(
+            lake.scan("silver", "nse_integrated_results")
+            .select("symbol", "period_to", "published_at")
+            .collect(),
+            symbol_map,
+            "published_at",
+        ).select(cols)
+        filings = pl.concat([filings, integrated], how="vertical_relaxed")
+    ev = event_features(
+        samples.select("company_id", "trade_date"),
+        meetings,
+        filings,
+        panel.select("company_id", "trade_date", "adj_close"),
+    )
+    return samples.join(ev, on=["company_id", "trade_date"], how="left")
 
 
 def blocked_samples(lake: Lake, samples: pl.DataFrame, days: int) -> pl.DataFrame:

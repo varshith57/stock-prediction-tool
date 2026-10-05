@@ -31,6 +31,8 @@ def label_span_days(window: int) -> int:
 
 
 # name -> description (the catalogue; families in FAMILIES)
+from stockapp.features.events import FEATURES as _EVENT_FEATURES  # noqa: E402
+
 FEATURES: dict[str, str] = {}
 FAMILIES: dict[str, list[str]] = {}
 
@@ -117,8 +119,10 @@ _register(
     rank_value_20="Percentile of log_value_20 among this week's universe",
     rank_delivery_20="Percentile of delivery_20 among this week's universe",
 )
+_register("events", **_EVENT_FEATURES)  # computed in features.events (needs results dates)
 FEATURE_COLUMNS = list(FEATURES)
 CROSS_SECTION = FAMILIES["cross_section"]
+EVENTS = FAMILIES["events"]  # added by features.pipeline.add_event_features, not from prices
 LABELS = ["label_a", "label_c", "max_gain_5"]
 
 
@@ -207,7 +211,7 @@ def compute_features(panel: pl.DataFrame, market: pl.DataFrame) -> pl.DataFrame:
     breadth = p.group_by("trade_date").agg((pl.col("sma_gap_50") > 0).mean().alias("breadth_50"))
     p = p.join(breadth, on="trade_date", how="left")
     keep = ["company_id", "segment", "trade_date", "series", *FEATURE_COLUMNS]
-    return p.select([k for k in keep if k not in CROSS_SECTION]).with_columns(
+    return p.select([k for k in keep if k not in CROSS_SECTION and k not in EVENTS]).with_columns(
         pl.col(pl.Float64).replace([float("inf"), float("-inf")], None)
     )
 

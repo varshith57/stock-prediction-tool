@@ -57,7 +57,11 @@ def refresh_reference(conn: psycopg.Connection, lake: Lake, today: date) -> str:
         ]
         # results dates: last month, this month and next (meetings are announced ahead)
         from stockapp.ingest.nse_corp_actions import month_start
-        from stockapp.ingest.nse_results import NseBoardMeetings, NseFinancialResults
+        from stockapp.ingest.nse_results import (
+            NseBoardMeetings,
+            NseFinancialResults,
+            NseIntegratedResults,
+        )
 
         this = month_start(today)
         months = [
@@ -68,7 +72,7 @@ def refresh_reference(conn: psycopg.Connection, lake: Lake, today: date) -> str:
         results = [
             c(conn, lake, http).run(m, force=True).status
             for m in months
-            for c in (NseBoardMeetings, NseFinancialResults)
+            for c in (NseBoardMeetings, NseFinancialResults, NseIntegratedResults)
         ]
     if "failed" in statuses:
         raise RuntimeError(f"reference snapshot failed: {statuses}")

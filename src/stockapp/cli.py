@@ -369,11 +369,18 @@ def _models_money(_: argparse.Namespace) -> int:
     return 0
 
 
+INTEGRATED_FROM = date(2024, 10, 1)  # integrated filings start early 2025; overlap for checks
+
+
 def _results_backfill(args: argparse.Namespace) -> int:
     from stockapp.db import connect
     from stockapp.ingest.http import PoliteClient
     from stockapp.ingest.nse_corp_actions import month_start
-    from stockapp.ingest.nse_results import NseBoardMeetings, NseFinancialResults
+    from stockapp.ingest.nse_results import (
+        NseBoardMeetings,
+        NseFinancialResults,
+        NseIntegratedResults,
+    )
     from stockapp.lake import Lake
 
     lake, end = Lake.from_settings(), args.end or date.today()
@@ -382,7 +389,10 @@ def _results_backfill(args: argparse.Namespace) -> int:
         http.get("https://www.nseindia.com/companies-listing/corporate-filings-board-meetings")
         month = month_start(args.start)
         while month <= month_start(end):
-            for c in (NseBoardMeetings, NseFinancialResults):
+            sources = [NseBoardMeetings, NseFinancialResults]
+            if month >= INTEGRATED_FROM:
+                sources.append(NseIntegratedResults)
+            for c in sources:
                 r = c(conn, lake, http).run(month, skip_if_loaded=not args.force)
                 print(f"{c.source_id} {r.partition_key} {r.status} rows={r.rows or 0}", flush=True)
                 failed += r.status == "failed"

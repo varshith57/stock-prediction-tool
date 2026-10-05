@@ -122,3 +122,14 @@ nse_financial_results:
     Personal, non-commercial use; no redistribution. broadCastDate is the publication time.
   fallback: BSE results; company announcements
   earliest_date_note: Spot-checked 2026-10-05 May 2024 = 3,056 filings in one call.
+
+nse_integrated_results:
+  name: NSE integrated filing results (equities, quarterly)
+  provides: Quarterly results filed as SEBI Integrated Filing (Financials), with publication time, quarter end and XBRL/iXBRL links; replaces nse_financial_results from early 2025
+  access: JSON API on www.nseindia.com, queried by filing month with size=10000 (default page is 20 rows; totalCount is checked)
+  url_template: https://www.nseindia.com/api/integrated-filing-results?index=equities&period=Quarterly&size=10000&from_date={dd-mm-yyyy}&to_date={dd-mm-yyyy}
+  terms_note: >-
+    Personal, non-commercial use; no redistribution. No ISIN: matched by symbol as of the
+    publication date.
+  fallback: BSE integrated filings; company announcements
+  earliest_date_note: Spot-checked 2026-10-05 July 2025 = 3,765 filings in one call (size=5000).

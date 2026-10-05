@@ -90,3 +90,23 @@ def test_real_samples_parse(cls, name):
     assert df.height == 40 and not [
         i for i in c.validate(df, date(2024, 5, 1)) if i.severity == "BLOCK"
     ]
+
+
+def test_integrated_filings_parse_and_short_pages_are_quarantined():
+    from stockapp.ingest.nse_results import NseIntegratedResults
+
+    row = {
+        "symbol": "ABC", "qe_Date": "30-JUN-2025", "broadcast_Date": "31-Jul-2025 22:59:52",
+        "consolidated": "Consolidated", "audited": "Un-Audited", "xbrl": "x.xml",
+        "ixbrl": "x.html", "seq_Id": "7", "cmName": "ABC Ltd",
+    }  # fmt: skip
+    c = _conn(NseIntegratedResults)
+    full = json.dumps({"data": [row], "totalCount": 1}).encode()
+    assert header_fingerprint(c.extract_header(full)) in c.known_fingerprints
+    r = c.parse(full, date(2025, 7, 1)).row(0, named=True)
+    assert r["period_to"] == date(2025, 6, 30) and r["published_at"] == datetime(
+        2025, 7, 31, 22, 59, 52
+    )
+    short = json.dumps({"data": [row], "totalCount": 20}).encode()
+    assert header_fingerprint(c.extract_header(short)) not in c.known_fingerprints
+    assert "size=10000" in c.url_for(date(2025, 7, 1))

@@ -117,7 +117,7 @@ class NseBoardMeetings(_MonthlyJson):
             pl.col("bm_desc").str.strip_chars().alias("description"),
             _ts("bm_timestamp").alias("announced_at"),
             pl.col("bm_purpose")
-            .str.contains("(?i)financial result")
+            .str.contains("(?i)result")  # "Results" (2016-17), "Financial Results" (later)
             .fill_null(False)
             .alias("is_results"),
             pl.lit(month).alias("month"),
@@ -174,6 +174,80 @@ class NseFinancialResults(_MonthlyJson):
         return [Issue("WARN", "required_nulls", nulls)] if nulls else []
 
 
+class NseIntegratedResults(_MonthlyJson):
+    """Quarterly results filed as SEBI "Integrated Filing (Financials)", which replaced the
+    results feed above from early 2025 (the old feed drops to a handful of rows a month).
+
+    The API pages 20 rows by default and reports ``totalCount``; ``size`` asks for everything in
+    one call, and a short page fails the format check rather than silently losing filings. No ISIN
+    here: companies are matched by symbol as of the publication date."""
+
+    source_id = "nse_integrated_results"
+    dataset = "nse_integrated_results"
+    api_path = "integrated-filing-results?index=equities&period=Quarterly&size=10000"
+    required = (
+        "symbol", "qe_Date", "broadcast_Date", "consolidated", "audited", "xbrl", "ixbrl",
+        "seq_Id",
+    )  # fmt: skip
+    known_fingerprints: ClassVar[frozenset[str]] = frozenset(
+        {header_fingerprint(",".join(required)), header_fingerprint(EMPTY)}
+    )
+    request_headers: ClassVar[dict[str, str]] = {
+        "Accept": "application/json",
+        "Referer": "https://www.nseindia.com/companies-listing/corporate-integrated-filing",
+    }
+
+    def filename_for(self, day: date) -> str:
+        return f"integrated_results_{day:%Y-%m}.json"
+
+    def _payload(self, content: bytes) -> tuple[list[dict], int]:
+        d = json.loads(content)
+        if not isinstance(d, dict) or "data" not in d:
+            raise ValueError("expected {data, totalCount}")
+        return d["data"], int(d.get("totalCount", len(d["data"])))
+
+    def extract_header(self, content: bytes) -> str:
+        rows, total = self._payload(content)
+        if len(rows) != total:
+            return f"short page: {len(rows)} of {total}"  # unknown: quarantined
+        return super().extract_header(json.dumps(rows).encode())
+
+    def parse(self, content: bytes, day: date) -> pl.DataFrame:
+        month = self.partition_key(day)
+        rows, _ = self._payload(content)
+        if not rows:
+            return pl.DataFrame(schema=IR_SCHEMA).with_columns(pl.lit(month).alias("month"))
+        return self._rows(json.dumps(rows).encode()).select(
+            pl.col("symbol").str.strip_chars(),
+            pl.col("qe_Date").str.strip_chars().str.to_titlecase().str.to_date("%d-%b-%Y",
+                                                                               strict=False)
+            .alias("period_to"),
+            _ts("broadcast_Date").alias("published_at"),
+            pl.col("consolidated").str.strip_chars(),
+            pl.col("audited").str.strip_chars(),
+            pl.col("xbrl").str.strip_chars().alias("xbrl_url"),
+            pl.col("ixbrl").str.strip_chars().alias("ixbrl_url"),
+            pl.col("seq_Id").alias("seq_id"),
+            pl.lit(month).alias("month"),
+        )  # fmt: skip
+
+    def validate(self, df: pl.DataFrame, day: date) -> list[Issue]:
+        if df.height == 0:
+            return [Issue("WARN", "no_results_in_month", {"month": self.partition_key(day)})]
+        nulls = {c: n for c in ("symbol", "published_at") if (n := df[c].null_count())}
+        return [Issue("WARN", "required_nulls", nulls)] if nulls else []
+
+
+IR_SCHEMA = {
+    "symbol": pl.String,
+    "period_to": pl.Date,
+    "published_at": pl.Datetime,
+    "consolidated": pl.String,
+    "audited": pl.String,
+    "xbrl_url": pl.String,
+    "ixbrl_url": pl.String,
+    "seq_id": pl.String,
+}
 BM_SCHEMA = {
     "symbol": pl.String,
     "isin": pl.String,
