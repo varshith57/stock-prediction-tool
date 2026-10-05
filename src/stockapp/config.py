@@ -69,6 +69,17 @@ class SignalsConfig(_Strict):
     model: Literal["lightgbm", "ensemble"] = "lightgbm"  # ensemble = models.ensemble (5 models)
 
 
+def horizon(days: int) -> str:
+    """The signal window in plain words, for the UI: "this week", "within a month"..."""
+    if days <= 5:
+        return "this week"
+    if days in (9, 10, 11):
+        return "within 2 weeks"
+    if 19 <= days <= 22:
+        return "within a month"
+    return f"within {days} market days"
+
+
 class RiskConfig(_Strict):
     max_stock_weight: float = Field(gt=0, le=1)
     max_sector_weight: float = Field(gt=0, le=1)

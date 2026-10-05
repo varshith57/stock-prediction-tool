@@ -11,7 +11,7 @@ Order of precedence:
    and the per-stock cap (``max_stock_weight`` of portfolio + budget, but at least
    ``min_position_inr`` so a new portfolio can start), whole shares, and skipped with a note if
    that is below ``min_position_inr``.
-4. Everything else held, riskiest first (highest chance of a 10% drop). Together, exits and holds
+4. Everything else held, riskiest first (highest chance of the drop). Together, exits and holds
    cover every holding.
 5. A watch queue: the next-best buy candidates by chance, below the bar or while signal A is
    OFF. The home screen shows them only down to the confidence the user picks, labelled "watch,
@@ -24,7 +24,7 @@ import math
 from dataclasses import asdict, dataclass, field
 from datetime import date
 
-from stockapp.config import AppConfig
+from stockapp.config import AppConfig, horizon
 from stockapp.plan.rules import Drawdown, HoldingState, Regime, RuleHit, exit_rules
 
 MIN_LISTED_SESSIONS = 250
@@ -284,7 +284,8 @@ def build_plan(
                 "BUY",
                 c.company_id,
                 c.symbol,
-                f"Chance of +{cfg.signals.gain_threshold:.0%} this week {c.p_a:.0%}",
+                f"Chance of +{cfg.signals.gain_threshold:.0%} "
+                f"{horizon(cfg.signals.window_trading_days)} {c.p_a:.0%}",
                 c.reason_a,
                 probability=c.p_a,
                 expected_gain=c.expected_gain,

@@ -21,7 +21,7 @@ from pathlib import Path
 import polars as pl
 
 from stockapp.config import AppConfig
-from stockapp.features.build import FEATURE_COLUMNS
+from stockapp.features.build import FEATURE_COLUMNS, label_span_days
 from stockapp.features.pipeline import FEATURE_VERSION, load_weekly_samples
 from stockapp.ingest.registry import pipeline_version
 from stockapp.lake import Lake
@@ -35,7 +35,6 @@ from stockapp.models.backtest import (
 )
 from stockapp.models.gate import GateResult, evaluate_gate, precision_curve
 from stockapp.models.walkforward import (
-    EMBARGO_DAYS,
     PARAMS,
     add_months,
     fit_calibrator,
@@ -65,11 +64,12 @@ class BacktestRun:
 def run_backtests(lake: Lake, cfg: AppConfig, today: date) -> BacktestRun:
     samples = load_weekly_samples(lake)
     gate_cfg = cfg.signals.gate
+    embargo = label_span_days(cfg.signals.window_trading_days)
     backtests, gates, sections = {}, {}, []
     for signal, label in SIGNALS.items():
         bt = run_backtest(
             samples, FEATURE_COLUMNS, label, FIRST_TEST, with_quantile=signal == "A",
-            kind=cfg.signals.model,
+            kind=cfg.signals.model, embargo_days=embargo,
         )  # fmt: skip
         backtests[signal] = bt
         cap = cfg.signals.max_opportunities if signal == "A" else None
@@ -109,7 +109,7 @@ def run_backtests(lake: Lake, cfg: AppConfig, today: date) -> BacktestRun:
     header = (
         f"# Walk-forward backtest ({today})\n\nFeature version {FEATURE_VERSION}, pipeline "
         f"{pipeline_version()}. Quarterly folds, expanding window, isotonic calibration on the 4 "
-        f"quarters before each test quarter, {EMBARGO_DAYS}-day embargo between blocks. Every "
+        f"quarters before each test quarter, {embargo}-day embargo between blocks. Every "
         "number is out of sample.\n\n"
         + "\n".join(f"- Signal {s}: **{g.status}**: {g.reason}" for s, g in gates.items())
         + "\n\n"
@@ -137,7 +137,8 @@ def train_and_score(lake: Lake, cfg: AppConfig, today: date) -> pl.DataFrame:
         lab = usable.filter(pl.col(label).is_not_null())
         last = lab["trade_date"].max()
         calib_start = add_months(date(last.year, 3 * ((last.month - 1) // 3) + 1, 1), -9)
-        train = lab.filter(pl.col("trade_date") < calib_start - timedelta(days=EMBARGO_DAYS))
+        embargo = label_span_days(cfg.signals.window_trading_days)
+        train = lab.filter(pl.col("trade_date") < calib_start - timedelta(days=embargo))
         calib = lab.filter(pl.col("trade_date") >= calib_start)
         model = fit_model(train, calib, FEATURE_COLUMNS, label, cfg.signals.model)
         iso = fit_calibrator(model, calib, FEATURE_COLUMNS, label)

@@ -15,6 +15,7 @@ from views import ui
 from views.common import cfg, inr, lake
 
 from stockapp.cli import IST
+from stockapp.config import horizon
 from stockapp.db import connect
 from stockapp.models.run import precision_at_bar
 from stockapp.plan.store import actions_for, latest_plan, log_action
@@ -81,10 +82,10 @@ def _column_head(title: str, count: int, tone: str, hint: str) -> None:
     )
 
 
-def _buy(plan: dict, plan_id: int, logged: dict, bar: float, gain: float) -> None:
+def _buy(plan: dict, plan_id: int, logged: dict, bar: float, gain: float, when: str) -> None:
     acts = plan["opportunities"]
     queue = [w for w in plan.get("watch_buys", []) if (w["probability"] or 0) >= bar]
-    _column_head("Buy", len(acts), "green", "New stocks worth buying this week.")
+    _column_head("Buy", len(acts), "green", f"New stocks likely to rise {gain:.0%} {when}.")
     for o in acts:
         with st.container(border=True):
             _card(
@@ -101,7 +102,7 @@ def _buy(plan: dict, plan_id: int, logged: dict, bar: float, gain: float) -> Non
         with st.container(border=True):
             st.markdown('<div class="sa-sym">Nothing to buy</div>', unsafe_allow_html=True)
             ui.muted(
-                f"No stock is {ACT_BAR:.0%} sure to rise {gain:.0%} this week. Most weeks are "
+                f"No stock is {ACT_BAR:.0%} sure to rise {gain:.0%} {when}. Most weeks are "
                 "like this: waiting is a decision too."
             )
     for n in plan["notes"]:
@@ -121,7 +122,7 @@ def _buy(plan: dict, plan_id: int, logged: dict, bar: float, gain: float) -> Non
             )
 
 
-def _sell(plan: dict, plan_id: int, logged: dict, watch: list[dict]) -> None:
+def _sell(plan: dict, plan_id: int, logged: dict, watch: list[dict], drop: str) -> None:
     acts = plan["exits"]
     _column_head("Sell", len(acts), "red", "Stocks to sell, most urgent first.")
     for e in acts:
@@ -129,7 +130,7 @@ def _sell(plan: dict, plan_id: int, logged: dict, watch: list[dict]) -> None:
             if e.get("rule"):
                 tag, why = RULE_NAMES.get(e["rule"], "Rule"), e["reason"]
             else:
-                tag, why = f"{e['probability']:.0%} drop risk", "Likely to fall 10%+ this week"
+                tag, why = f"{e['probability']:.0%} drop risk", f"Likely to fall {drop}"
             _card(e["symbol"], tag, "red", [why, _mine(e)])
             _log(plan_id, f"SELL:{e['company_id']}", logged)
     if not acts:
@@ -225,15 +226,16 @@ def render() -> None:
     holds = plan["holds"]
     sell_watch = [h for h in holds if (h.get("probability") or 0) >= bar]
     keep = [h for h in holds if h not in sell_watch]
-    gain = cfg().signals.gain_threshold
+    sig = cfg().signals
+    gain, when = sig.gain_threshold, horizon(sig.window_trading_days)
 
     b, h, s = st.columns(3, gap="medium")
     with b:
-        _buy(plan, row["plan_id"], logged, bar, gain)
+        _buy(plan, row["plan_id"], logged, bar, gain, when)
     with h:
         _hold(keep)
     with s:
-        _sell(plan, row["plan_id"], logged, sell_watch)
+        _sell(plan, row["plan_id"], logged, sell_watch, f"{sig.crash_threshold:.0%}+ {when}")
 
     gates = plan.get("gates", {})
     if any(g["status"] != "LIVE" for g in gates.values()):

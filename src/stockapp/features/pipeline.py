@@ -28,6 +28,7 @@ from stockapp.features.build import (
     add_cross_section,
     compute_features,
     compute_labels,
+    label_span_days,
     market_features,
 )
 from stockapp.ingest.registry import pipeline_version
@@ -104,7 +105,7 @@ def build_weekly_samples(lake: Lake, cfg: AppConfig, as_of: date) -> pl.DataFram
     )
     samples = add_cross_section(samples)
 
-    blocked = blocked_samples(lake, samples, 14)
+    blocked = blocked_samples(lake, samples, label_span_days(cfg.signals.window_trading_days))
     samples = samples.join(blocked, on=["company_id", "trade_date"], how="left").with_columns(
         pl.col("blocked").fill_null(False),
         pl.lit(FEATURE_VERSION).alias("feature_version"),

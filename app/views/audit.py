@@ -12,6 +12,7 @@ from views import ui
 from views.common import cfg, inr, lake
 
 from stockapp.audit.report import build_audit, lock_snapshot, money_for_period, to_markdown
+from stockapp.config import horizon
 from stockapp.db import connect
 
 PERIODS = {"4 weeks": 28, "12 weeks": 84, "6 months": 182, "1 year": 365}
@@ -105,7 +106,13 @@ def _details(audit, money, start, end) -> None:
     ui.section("Missed events")
     with st.container(border=True):
         for s, m in audit.missed.items():
-            what = "+10% weeks" if s == "A" else "-10% weeks"
+            sig = cfg().signals
+            when = horizon(sig.window_trading_days).replace("this week", "in a week")
+            what = (
+                f"+{sig.gain_threshold:.0%} moves {when}"
+                if s == "A"
+                else f"-{sig.crash_threshold:.0%} moves {when}"
+            )
             st.markdown(
                 f'<div class="sa-row" style="padding:.2rem 0"><span><b>Signal {s}</b> · '
                 f"{m['events']} {what} in the universe</span><span class='sa-muted'>"
@@ -136,7 +143,7 @@ def _details(audit, money, start, end) -> None:
     if audit.calibration:
         st.dataframe(pl.DataFrame(audit.calibration), hide_index=True, width="stretch")
     else:
-        ui.muted("No matured live scores yet: a week's outcome is known 5 trading days later.")
+        ui.muted("No matured live scores yet: an outcome is known once its window has passed.")
 
     ui.section("Data and model health")
     hlt = audit.health

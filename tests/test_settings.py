@@ -128,3 +128,14 @@ def test_background_status(tmp_path, monkeypatch: pytest.MonkeyPatch):
         json.dumps({"pid": 999999, "log": str(log), "started_at": "2026-10-05T10:00:00"})
     )
     assert background.status()["failed"]  # process gone without a final line
+
+
+def test_horizon_wording_follows_the_window():
+    from stockapp.config import horizon
+
+    assert [horizon(d) for d in (5, 10, 20, 30)] == [
+        "this week",
+        "within 2 weeks",
+        "within a month",
+        "within 30 market days",
+    ]
