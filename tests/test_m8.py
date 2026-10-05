@@ -100,7 +100,7 @@ def test_low_quality_means_no_signal_and_no_actions():
 
 
 def test_stop_loss_is_a_rule_without_a_percentage():
-    p = plan(holdings=[hold("BBB", cost=100, last=89)])  # stop = 100 - 2 x 5 = 90
+    p = plan(holdings=[hold("BBB", cost=100, last=89, opened_by_signal_a=True)])  # stop = 90
     [item] = p.exits
     assert item.rule == "stop_loss" and item.probability is None
     assert "exit rule hit (stop loss)" in item.headline and "%" not in item.headline
@@ -164,7 +164,9 @@ def test_signal_b_target_needs_profit_after_costs_and_time_stop():
 
 
 def test_trailing_stop_only_when_configured():
-    h = hold("X", cost=50, last=120, peak_close_since_buy=150)
+    h = hold(
+        "X", cost=50, last=120, peak_close_since_buy=150, opened_by_signal_a=True, sessions_held=2
+    )
     assert exit_rules(h, CFG) == []
     cfg = CFG.model_copy(
         update={"risk": CFG.risk.model_copy(update={"trailing_stop_atr_multiple": 3.0})}
@@ -213,7 +215,11 @@ def test_reasons_are_templated_from_feature_values():
 
 
 def test_telegram_summary_never_carries_amounts():
-    p = plan([cand("AAA", p_a=0.95)], [hold("BBB", cost=100, last=80)], budget=50_000)
+    p = plan(
+        [cand("AAA", p_a=0.95)],
+        [hold("BBB", cost=100, last=80, opened_by_signal_a=True)],
+        budget=50_000,
+    )
     text = plan_summary(p)
     check_summary_only(text)  # raises on any rupee amount
     assert "Sell: BBB" in text and "Buy: AAA" in text
@@ -287,7 +293,7 @@ def test_buckets_cover_the_portfolio_sells_by_urgency_holds_riskiest_first():
         hold("SAFE", quantity=10),
         hold("RISKY"),
         hold("CRASH"),
-        hold("LOSER", cost=100, last=80),  # stop loss, the deepest loss
+        hold("LOSER", cost=100, last=80, opened_by_signal_a=True),  # trade: stop-loss
         hold("TARGET", cost=100, last=125, opened_by_signal_a=True, net_profit_if_sold=500.0),
     ]
     p = plan(cands, holdings)
@@ -308,3 +314,52 @@ def test_watch_queue_ranks_unchosen_candidates_even_when_off():
     live = plan([cand("TOP", p_a=0.95), cand("NEXT", p_a=0.5)])
     assert [o.symbol for o in live.opportunities] == ["TOP"]
     assert [w.symbol for w in live.watch_buys] == ["NEXT"]  # chosen ones aren't repeated
+
+
+def test_investments_are_never_auto_sold_only_flagged_for_review():
+    cands = [cand("DEEP", p_c=0.01), cand("MILD", p_c=0.30), cand("TRADE", p_c=0.01)]
+    holdings = [
+        hold("DEEP", cost=100, last=80),  # investment, -20%: past the 15% review line
+        hold("MILD", cost=100, last=90),  # investment, -10%: just held
+        hold("TRADE", cost=100, last=80, opened_by_signal_a=True),  # same loss, but a trade
+    ]
+    p = plan(cands, holdings)
+    assert [i.symbol for i in p.exits] == ["TRADE"] and p.exits[0].rule == "stop_loss"
+    assert "stop-loss" in p.exits[0].reason and "ATR" not in p.exits[0].reason  # plain words
+    assert [i.symbol for i in p.holds] == ["DEEP", "MILD"]  # review first, then riskiest
+    deep, mild = p.holds
+    assert deep.review and deep.headline == "Review" and "Not a sell" in deep.reason
+    assert deep.reason.startswith("Down 20.0% since you bought")
+    assert deep.style == "investment" and not mild.review
+    stricter = CFG.model_copy(
+        update={"risk": CFG.risk.model_copy(update={"investment_review_loss": 0.08})}
+    )
+    assert all(i.review for i in build_plan_with(stricter, cands, holdings[:2]).holds)
+
+
+def build_plan_with(cfg, cands, holdings):
+    return build_plan(
+        cfg=cfg,
+        signal_date=date(2026, 10, 2),
+        week_of=date(2026, 10, 5),
+        quality_score=99.0,
+        candidates=cands,
+        holdings=holdings,
+        holding_weights={},
+        gates=LIVE,
+        regime=CALM,
+        drawdown=NO_DD,
+        budget_available=10_000.0,
+    )
+
+
+def test_holding_styles_store(db: psycopg.Connection):
+    from stockapp.portfolio.store import holding_styles, set_holding_style
+
+    assert holding_styles(db) == {}
+    set_holding_style(db, "ITC", "trade")
+    set_holding_style(db, "ITC", "investment")
+    set_holding_style(db, "INFY", "trade")
+    assert holding_styles(db) == {"ITC": "investment", "INFY": "trade"}
+    with pytest.raises(ValueError):
+        set_holding_style(db, "ITC", "gamble")

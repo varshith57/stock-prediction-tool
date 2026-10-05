@@ -137,6 +137,10 @@ Neon later) for app state, LightGBM, scikit-learn, Streamlit, pytest, ruff, GitH
   the deterministic rules (stop 2xATR below cost, optional trailing stop, signal B, stress regime,
   time-weighted drawdown). Rules are labelled as rules, never with a percentage.
 - Position size = min(cash left, max(15% of portfolio+budget, minimum position)), whole shares.
+- Holdings are a "trade" (from the app's buy ideas: stop-loss, trailing, target, time stop apply)
+  or an "investment" (default; Postgres `holding_styles`): investments are never sold by a rule,
+  only flagged "Review" past `risk.investment_review_loss` (user's choice, 2026-10-05). A LIVE
+  signal C sell applies to any holding.
 - Telegram text comes from `cli.plan_summary`: tickers and counts only (checked by
   `check_summary_only`).
 

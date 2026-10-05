@@ -1,6 +1,10 @@
 """Deterministic rules (PRD sections 5 and 9). These are rules, never predictions: the app labels
 them "Exit rule hit: <rule>" and never shows a percentage next to them.
 
+Exit rules apply to *trades* only (holdings opened from the app's buy ideas). *Investments* (the
+user's own long-term buys) are never auto-sold: past ``investment_review_loss`` below cost they
+get a review note instead (``review_note``).
+
 * Stop loss: last close at or below cost per share minus ``stop_atr_multiple`` x ATR(14).
 * Trailing stop (off unless configured): last close at or below the highest close since buying
   minus ``trailing_stop_atr_multiple`` x ATR(14).
@@ -36,21 +40,30 @@ class HoldingState:
     atr_14: float | None  # in rupees, from adjusted prices
     peak_close_since_buy: float | None
     sessions_held: int | None  # None if the buy date is unknown
-    opened_by_signal_a: bool = False
+    opened_by_signal_a: bool = False  # a "trade": the short-term exit rules apply
     net_profit_if_sold: float | None = None  # after charges and indicative tax
     quantity: float | None = None
 
 
+def _pct_from(a: float, b: float) -> str:
+    return f"{a / b - 1:+.1%}"
+
+
 def exit_rules(h: HoldingState, cfg: AppConfig) -> list[RuleHit]:
+    """Exit rules for trades. Investments get none: see ``review_note``."""
     hits: list[RuleHit] = []
+    if not h.opened_by_signal_a:
+        return hits
     if h.atr_14:
         stop = h.cost_per_share - cfg.risk.stop_atr_multiple * h.atr_14
         if h.last_close <= stop:
             hits.append(
                 RuleHit(
                     "stop_loss",
-                    f"closed at {h.last_close:,.2f}, at or below the stop "
-                    f"{stop:,.2f} ({cfg.risk.stop_atr_multiple:g} x ATR below cost)",
+                    f"Down {1 - h.last_close / h.cost_per_share:.1%} since you bought. This "
+                    f"trade's stop-loss was {stop:,.2f} ({_pct_from(stop, h.cost_per_share)}, "
+                    f"about {cfg.risk.stop_atr_multiple:g} normal days' moves below your price): "
+                    "trades are cut early so a small loss can't become a big one",
                     stop,
                 )
             )
@@ -61,8 +74,9 @@ def exit_rules(h: HoldingState, cfg: AppConfig) -> list[RuleHit]:
                 hits.append(
                     RuleHit(
                         "trailing_stop",
-                        f"fell to {h.last_close:,.2f} from a peak of "
-                        f"{h.peak_close_since_buy:,.2f} (trailing stop {trail:,.2f})",
+                        f"Fell to {h.last_close:,.2f} from its best of "
+                        f"{h.peak_close_since_buy:,.2f} since you bought, past the lock-in "
+                        f"line {trail:,.2f}: sell to keep the gain",
                         trail,
                     )
                 )
@@ -73,7 +87,8 @@ def exit_rules(h: HoldingState, cfg: AppConfig) -> list[RuleHit]:
             hits.append(
                 RuleHit(
                     "target_reached",
-                    f"reached the +{cfg.signals.gain_threshold:.0%} target {target:,.2f}",
+                    f"Reached the +{cfg.signals.gain_threshold:.0%} target {target:,.2f}, "
+                    "with a profit after fees and tax: take it",
                     target,
                 )
             )
@@ -81,11 +96,25 @@ def exit_rules(h: HoldingState, cfg: AppConfig) -> list[RuleHit]:
             hits.append(
                 RuleHit(
                     "time_stop",
-                    f"the {cfg.signals.window_trading_days}-day signal "
-                    "window is over without reaching the target",
+                    f"The {cfg.signals.window_trading_days}-day window this trade was bought "
+                    "for is over without reaching the target: free the money for the next idea",
                 )
             )
     return hits
+
+
+def review_note(h: HoldingState, cfg: AppConfig) -> str | None:
+    """Investments only: a nudge (never a sell) once the loss passes the user's review line."""
+    if h.opened_by_signal_a or not h.cost_per_share:
+        return None
+    change = h.last_close / h.cost_per_share - 1
+    line = cfg.risk.investment_review_loss
+    if change > -line:
+        return None
+    return (
+        f"Down {-change:.1%} since you bought, past your {line:.0%} review line. Not a sell: "
+        "ask whether you'd buy it today at this price"
+    )
 
 
 @dataclass(frozen=True)

@@ -36,7 +36,11 @@ def home(db: psycopg.Connection, _test_database: str, tmp_path, monkeypatch: pyt
     p = plan(
         [cand("LOSER", p_c=0.01), cand("RISKY", p_c=0.40), cand("SAFE", p_c=0.02)]
         + [cand(f"N{i}", p_a=0.05 * i) for i in range(1, 5)],
-        [hold("LOSER", cost=100, last=80, quantity=5), hold("RISKY"), hold("SAFE")],
+        [
+            hold("LOSER", cost=100, last=80, quantity=5, opened_by_signal_a=True),
+            hold("RISKY"),
+            hold("SAFE"),
+        ],
         gates=OFF,
     )
     save_plan(db, p, "test")

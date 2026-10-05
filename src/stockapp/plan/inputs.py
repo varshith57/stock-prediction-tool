@@ -23,7 +23,7 @@ from stockapp.plan.rules import Drawdown, HoldingState, Regime, drawdown_state, 
 from stockapp.portfolio import service
 from stockapp.portfolio.costs import estimated_tax, is_long_term, order_charges
 from stockapp.portfolio.history import value_history
-from stockapp.portfolio.store import list_transactions, to_ledger_txns
+from stockapp.portfolio.store import holding_styles, list_transactions, to_ledger_txns
 from stockapp.portfolio.valuation import quantity_events
 
 
@@ -125,6 +125,7 @@ def holdings(
     loaded = service.load(conn, lake, cfg, today)
     lots = loaded.ledger.lots
     rows = list_transactions(conn)
+    styles = holding_styles(conn)
     weekly = cfg.budget.weekly_inr
     buys = [r for r in rows if r["side"] == "BUY"]
     last_buy = max((r["trade_date"] or r["created_at"].date() for r in buys), default=None)
@@ -177,6 +178,7 @@ def holdings(
                 sessions_held=since.height if first_buy else None,
                 net_profit_if_sold=gain - tax,
                 quantity=qty,
+                opened_by_signal_a=styles.get(cid) == "trade",
             )
         )
 

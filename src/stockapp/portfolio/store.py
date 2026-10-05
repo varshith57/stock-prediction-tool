@@ -83,3 +83,21 @@ def to_ledger_txns(rows: list[dict], estimate_charges) -> list[Txn]:
             )
         )  # fmt: skip
     return out
+
+
+STYLES = ("investment", "trade")
+
+
+def holding_styles(conn: psycopg.Connection) -> dict[str, str]:
+    """company_id -> 'trade' | 'investment'. Holdings without a row are investments."""
+    return {r["company_id"]: r["style"] for r in conn.execute("SELECT * FROM holding_styles")}
+
+
+def set_holding_style(conn: psycopg.Connection, company_id: str, style: str) -> None:
+    if style not in STYLES:
+        raise ValueError(f"style must be one of {STYLES}")
+    conn.execute(
+        """INSERT INTO holding_styles (company_id, style) VALUES (%s, %s)
+           ON CONFLICT (company_id) DO UPDATE SET style = excluded.style, updated_at = now()""",
+        (company_id, style),
+    )

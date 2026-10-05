@@ -41,6 +41,7 @@ LABELS = {
     "risk.trailing_stop_atr_multiple": "Lock in gains",
     "risk.drawdown_review": "Heads-up when down",
     "risk.drawdown_pause": "Stop new buys when down",
+    "risk.investment_review_loss": "Review an investment when down",
     "risk.stress_vix_percentile": "Nervous-market level",
     "universe.size": "Stocks to scan",
     "data.min_quality_score": "Data quality needed",
@@ -70,6 +71,7 @@ PERCENT_KEYS = {
     "risk.max_sector_weight",
     "risk.drawdown_review",
     "risk.drawdown_pause",
+    "risk.investment_review_loss",
     "risk.stress_vix_percentile",
     "goal.target_monthly_return",
     "costs.stt_rate",
@@ -149,6 +151,14 @@ def _main_inputs(c: AppConfig, v: dict) -> bool:
             )
             _moves("The most stocks you'll be told to buy in one week (5 at most).")
         with b:
+            v["risk"]["investment_review_loss"] = _pct(
+                "Review an investment when down",
+                c.risk.investment_review_loss,
+                min_value=1.0,
+                max_value=90.0,
+            )
+            _moves("Your long-term stocks are never auto-sold. Past this loss you get a nudge.")
+        with d:
             st.markdown('<div style="height:1.9rem"></div>', unsafe_allow_html=True)
             v["alerts"]["telegram_enabled"] = st.toggle(
                 "Phone alerts", value=c.alerts.telegram_enabled
@@ -264,8 +274,9 @@ def _set_once(c: AppConfig, v: dict) -> bool:
                 min_value=0.5,
                 max_value=10.0,
                 step=0.5,
-                help="Sell when a stock falls this many 'normal days' below what you paid. A "
-                "normal day is its typical daily swing; 2 means about two days' worth.",
+                help="Trades only (not investments): sell when a stock falls this many "
+                "'normal days' below what you paid. A normal day is its typical daily swing; 2 "
+                "means about two days' worth.",
             )
             trailing_on = b.toggle(
                 "Lock in gains",

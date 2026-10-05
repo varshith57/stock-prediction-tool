@@ -3,8 +3,9 @@ shown on This Week. Pure: every input is passed in, so each rule is unit-tested.
 
 Order of precedence:
 1. Data quality below the minimum -> NO SIGNAL: no actions at all, just the reason.
-2. Exits for holdings: hard rules (stop loss, trailing stop), signal B for signal positions, and
-   signal C when it is LIVE at its validated cutoff. Rules are labelled as rules, never as a %.
+2. Exits for holdings: hard rules (stop loss, trailing stop, signal B) for trades only, and
+   signal C when it is LIVE at its validated cutoff (any holding). Rules are labelled as rules,
+   never as a %. Investments past the user's review line stay held, flagged for review.
 3. Opportunities (signal A), only when LIVE: above the cutoff, not blocked by a quality flag, not
    trade-for-trade, listed a year or more, no stress regime or drawdown pause; at most
    ``max_opportunities``, highest expected gain first. Each is sized to the lower of the cash left
@@ -25,7 +26,14 @@ from dataclasses import asdict, dataclass, field
 from datetime import date
 
 from stockapp.config import AppConfig, horizon
-from stockapp.plan.rules import Drawdown, HoldingState, Regime, RuleHit, exit_rules
+from stockapp.plan.rules import (
+    Drawdown,
+    HoldingState,
+    Regime,
+    RuleHit,
+    exit_rules,
+    review_note,
+)
 
 MIN_LISTED_SESSIONS = 250
 WATCH_LIMIT = 15
@@ -72,6 +80,8 @@ class PlanItem:
     rule: str | None = None
     return_pct: float | None = None  # holdings: gain so far vs cost per share
     value: float | None = None  # holdings: quantity x last close
+    review: bool = False  # investments past the review line: a nudge, not a sell
+    style: str | None = None  # holdings: "trade" or "investment"
 
     @property
     def key(self) -> str:
@@ -158,6 +168,7 @@ def build_plan(
         mine = {
             "return_pct": h.last_close / h.cost_per_share - 1 if h.cost_per_share else None,
             "value": h.quantity * h.last_close if h.quantity else None,
+            "style": "trade" if h.opened_by_signal_a else "investment",
         }
         if hits:
             r = hits[0]
@@ -192,14 +203,16 @@ def build_plan(
                     f"above the {cfg.risk.max_stock_weight:.0%} cap in a stress regime: "
                     "consider trimming"
                 )
+            review = review_note(h, cfg)
             plan.holds.append(
                 PlanItem(
                     "HOLD",
                     h.company_id,
                     h.symbol,
-                    "Hold",
-                    note or (cand.reason_c if cand else ""),
+                    "Review" if review else "Hold",
+                    review or note or (cand.reason_c if cand else ""),
                     probability=p_c,
+                    review=review is not None,
                     **mine,
                 )
             )
@@ -210,7 +223,9 @@ def build_plan(
             i.return_pct if i.return_pct is not None else 0.0,
         )
     )
-    plan.holds.sort(key=lambda i: -(i.probability if i.probability is not None else -1.0))
+    plan.holds.sort(
+        key=lambda i: (not i.review, -(i.probability if i.probability is not None else -1.0))
+    )
 
     # opportunities ---------------------------------------------------------------------------
     blockers = []

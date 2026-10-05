@@ -87,6 +87,8 @@ class RiskConfig(_Strict):
     trailing_stop_atr_multiple: float | None = Field(default=None, gt=0)
     drawdown_review: float = Field(lt=0)
     drawdown_pause: float = Field(lt=0)
+    # Investments (not trades) are never auto-sold: past this loss from cost they get a review note.
+    investment_review_loss: float = Field(default=0.15, gt=0, lt=1)
     stress_vix_percentile: float = Field(gt=0, lt=1)
 
 

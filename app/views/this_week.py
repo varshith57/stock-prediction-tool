@@ -124,7 +124,9 @@ def _buy(plan: dict, plan_id: int, logged: dict, bar: float, gain: float, when: 
 
 def _sell(plan: dict, plan_id: int, logged: dict, watch: list[dict], drop: str) -> None:
     acts = plan["exits"]
-    _column_head("Sell", len(acts), "red", "Stocks to sell, most urgent first.")
+    _column_head(
+        "Sell", len(acts), "red", "Most urgent first. Investments are never sold by a rule."
+    )
     for e in acts:
         with st.container(border=True):
             if e.get("rule"):
@@ -152,18 +154,25 @@ def _sell(plan: dict, plan_id: int, logged: dict, watch: list[dict], drop: str) 
 
 
 def _hold(holds: list[dict]) -> None:
-    _column_head("Hold", len(holds), "grey", "Keep these. Riskiest first.")
+    _column_head("Hold", len(holds), "grey", "Keep these. Ones to review first, then riskiest.")
     with st.container(border=True):
         if not holds:
             ui.muted("Nothing else you own. Record your trades on Portfolio to see them here.")
         for h in holds:
-            risk = (
-                f"{h['probability']:.0%} drop risk" if h.get("probability") is not None else "Hold"
+            if h.get("review"):
+                right = ui.pill("Review", "amber")
+            elif h.get("probability") is not None:
+                right = f'<span class="sa-muted">{h["probability"]:.0%} drop risk</span>'
+            else:
+                right = '<span class="sa-muted">Hold</span>'
+            note = (
+                f'<div class="sa-line sa-muted">{escape(h["reason"])}</div>'
+                if h.get("review")
+                else ""
             )
             st.markdown(
                 f'<div class="sa-holdrow"><div><span class="sa-sym">{escape(h["symbol"])}</span>'
-                f'<div class="sa-line">{escape(_mine(h))}</div></div>'
-                f'<span class="sa-muted">{escape(risk)}</span></div>',
+                f'<div class="sa-line">{escape(_mine(h))}</div>{note}</div>{right}</div>',
                 unsafe_allow_html=True,
             )
 

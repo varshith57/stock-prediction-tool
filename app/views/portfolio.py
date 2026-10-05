@@ -17,10 +17,11 @@ from stockapp.db import connect
 from stockapp.portfolio import service
 from stockapp.portfolio.costs import order_charges
 from stockapp.portfolio.kite import ImportFormatError, parse_holdings_csv
-from stockapp.portfolio.store import NewTransaction
+from stockapp.portfolio.store import NewTransaction, holding_styles, set_holding_style
 from stockapp.portfolio.valuation import load_latest_prices, resolve_symbol
 
 MONEY = st.column_config.NumberColumn
+STYLE_LABELS = {"investment": "Investment", "trade": "Trade"}
 
 
 @st.cache_data(ttl=600)
@@ -69,6 +70,7 @@ def render() -> None:
         _import_kite()
     with st.expander(f"Your holdings in detail ({view.holdings.height})"):
         _holdings(view, t)
+        _styles(view)
     with st.expander("How you're doing vs the Nifty 50"):
         _chart()
     with st.expander(f"All trades ({len(loaded.transactions)})"):
@@ -112,6 +114,32 @@ def _holdings(view, t) -> None:
     ui.muted(f"Estimated tax if you sold everything today: {inr(t['tax_if_sold'])}.")
 
 
+def _styles(view) -> None:
+    h = view.holdings
+    if h.is_empty():
+        return
+    with connect() as conn:
+        styles = holding_styles(conn)
+    ui.muted(
+        "Kind: "
+        + " · ".join(
+            f"{r['symbol']} {STYLE_LABELS[styles.get(r['company_id'], 'investment')].lower()}"
+            for r in h.iter_rows(named=True)
+        )
+    )
+    ids = dict(zip(h["symbol"].to_list(), h["company_id"].to_list(), strict=True))
+    a, b, c = st.columns([2, 2, 1], vertical_alignment="bottom")
+    pick = a.selectbox("Change a holding's kind", list(ids), index=None, placeholder="Stock")
+    kind = b.segmented_control(
+        "To", list(STYLE_LABELS), format_func=STYLE_LABELS.get, key="style_to"
+    )
+    if c.button("Change", disabled=pick is None or kind is None):
+        with connect() as conn:
+            set_holding_style(conn, ids[pick], kind)
+        _refresh_plan()
+        st.rerun()
+
+
 def _refresh_plan() -> None:
     """Holdings changed: rebuild this week's buckets so they match the portfolio."""
     if not lake().has_table("gold", "latest_scores"):
@@ -152,9 +180,18 @@ def _add_trade() -> None:
     symbol = a.selectbox("Stock", _symbols(), index=None, placeholder="Type a name, e.g. TCS")
     side = b.segmented_control("Bought or sold", ["BUY", "SELL"], default="BUY")
     trade_date = c.date_input("On", value=date.today(), max_value=date.today())
-    d, e = st.columns(2)
+    d, e, k = st.columns(3)
     qty = d.number_input("Shares", min_value=1, step=1, value=1)
     price = e.number_input("Price per share (₹)", min_value=0.01, step=0.05, format="%.2f")
+    style = k.segmented_control(
+        "Kind",
+        list(STYLE_LABELS),
+        format_func=STYLE_LABELS.get,
+        default="investment",
+        help="Investment: yours for the long run, never sold by a rule; you get a review note "
+        "if it falls past your review line. Trade: bought on one of the app's buy ideas; it "
+        "follows the short-term stop-loss and target.",
+    )
     est = order_charges(side or "BUY", int(qty), float(price), cfg().costs)
     with st.expander(f"Fees and note · fees estimated at {inr(est.total, 2)}"):
         f, g = st.columns(2)
@@ -186,6 +223,8 @@ def _add_trade() -> None:
         try:
             with connect() as conn:
                 service.add(conn, lake(), cfg(), [new])
+                if side == "BUY":
+                    set_holding_style(conn, hit[0], style or "investment")
         except service.LedgerError as exc:
             st.error(f"Not saved: {exc}")
             return
