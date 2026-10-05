@@ -11,8 +11,11 @@ Order of precedence:
    and the per-stock cap (``max_stock_weight`` of portfolio + budget, but at least
    ``min_position_inr`` so a new portfolio can start), whole shares, and skipped with a note if
    that is below ``min_position_inr``.
-4. Everything else held. When no opportunity qualifies, the closest candidate and its probability
-   are shown with the signal's real status (hideable in Settings).
+4. Everything else held, riskiest first (highest chance of a 10% drop). Together, exits and holds
+   cover every holding.
+5. A watch queue: the next-best buy candidates by chance, below the bar or while signal A is
+   OFF. The home screen shows them only down to the confidence the user picks, labelled "watch,
+   not a signal". When no opportunity qualifies, the closest candidate is also kept (Telegram).
 """
 
 from __future__ import annotations
@@ -25,6 +28,9 @@ from stockapp.config import AppConfig
 from stockapp.plan.rules import Drawdown, HoldingState, Regime, RuleHit, exit_rules
 
 MIN_LISTED_SESSIONS = 250
+WATCH_LIMIT = 15
+# Which sells come first: hard losses before planned exits; model-based sells after the rules.
+RULE_PRIORITY = {"stop_loss": 0, "trailing_stop": 1, "time_stop": 2, "target_reached": 3}
 
 
 @dataclass(frozen=True)
@@ -64,6 +70,8 @@ class PlanItem:
     sellout_price: float | None = None
     stop_price: float | None = None
     rule: str | None = None
+    return_pct: float | None = None  # holdings: gain so far vs cost per share
+    value: float | None = None  # holdings: quantity x last close
 
     @property
     def key(self) -> str:
@@ -83,6 +91,7 @@ class Plan:
     exits: list[PlanItem] = field(default_factory=list)
     opportunities: list[PlanItem] = field(default_factory=list)
     holds: list[PlanItem] = field(default_factory=list)
+    watch_buys: list[PlanItem] = field(default_factory=list)
     closest: dict | None = None
     notes: list[str] = field(default_factory=list)
     gates: dict[str, SignalGate] = field(default_factory=dict)
@@ -145,6 +154,11 @@ def build_plan(
     for h in holdings:
         hits: list[RuleHit] = exit_rules(h, cfg)
         cand = by_id.get(h.company_id)
+        p_c = cand.p_c if cand else None
+        mine = {
+            "return_pct": h.last_close / h.cost_per_share - 1 if h.cost_per_share else None,
+            "value": h.quantity * h.last_close if h.quantity else None,
+        }
         if hits:
             r = hits[0]
             level = f"Sell at or above {r.level:,.2f}" if r.rule == "target_reached" else "Sell"
@@ -156,17 +170,19 @@ def build_plan(
                     f"{level}: exit rule hit ({r.rule.replace('_', ' ')})",
                     "; ".join(x.message for x in hits),
                     rule=r.rule,
+                    **mine,
                 )
             )
-        elif c_live and cand and cand.p_c is not None and cand.p_c >= gate_c.cutoff:  # type: ignore[union-attr]
+        elif c_live and p_c is not None and p_c >= gate_c.cutoff:  # type: ignore[union-attr]
             plan.exits.append(
                 PlanItem(
                     "SELL",
                     h.company_id,
                     h.symbol,
-                    f"Sell before the drop: crash risk {cand.p_c:.0%}",
-                    cand.reason_c,
-                    probability=cand.p_c,
+                    f"Sell before the drop: crash risk {p_c:.0%}",
+                    cand.reason_c if cand else "",
+                    probability=p_c,
+                    **mine,
                 )
             )
         else:
@@ -176,7 +192,25 @@ def build_plan(
                     f"above the {cfg.risk.max_stock_weight:.0%} cap in a stress regime: "
                     "consider trimming"
                 )
-            plan.holds.append(PlanItem("HOLD", h.company_id, h.symbol, "Hold", note))
+            plan.holds.append(
+                PlanItem(
+                    "HOLD",
+                    h.company_id,
+                    h.symbol,
+                    "Hold",
+                    note or (cand.reason_c if cand else ""),
+                    probability=p_c,
+                    **mine,
+                )
+            )
+    plan.exits.sort(
+        key=lambda i: (
+            RULE_PRIORITY.get(i.rule, 9) if i.rule else 10,
+            -(i.probability or 0.0),
+            i.return_pct if i.return_pct is not None else 0.0,
+        )
+    )
+    plan.holds.sort(key=lambda i: -(i.probability if i.probability is not None else -1.0))
 
     # opportunities ---------------------------------------------------------------------------
     blockers = []
@@ -238,6 +272,25 @@ def build_plan(
             )
             cash -= qty * c.last_close
     plan.notes.extend(blockers)
+
+    chosen_ids = {o.company_id for o in plan.opportunities}
+    for c in sorted(eligible, key=lambda c: c.p_a or 0.0, reverse=True):
+        if len(plan.watch_buys) >= WATCH_LIMIT:
+            break
+        if c.company_id in chosen_ids:
+            continue
+        plan.watch_buys.append(
+            PlanItem(
+                "BUY",
+                c.company_id,
+                c.symbol,
+                f"Chance of +{cfg.signals.gain_threshold:.0%} this week {c.p_a:.0%}",
+                c.reason_a,
+                probability=c.p_a,
+                expected_gain=c.expected_gain,
+                guide_price=c.last_close,
+            )
+        )
 
     if not plan.opportunities and eligible:
         best = max(eligible, key=lambda c: c.p_a or 0.0)

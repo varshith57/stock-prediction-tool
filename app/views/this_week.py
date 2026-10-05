@@ -1,8 +1,9 @@
-"""This week (home): one question answered: what should I do this week?
+"""This week (home): three buckets, Buy | Hold | Sell, that together hold the whole portfolio.
 
-Built from the latest saved weekly plan. Sells first (red), then opportunities (green), then
-holdings to keep. Each action has a one-tap log that feeds the Monthly Audit. Rules are labelled
-as rules; probabilities appear only for validated LIVE signals.
+"Act now" items are the saved weekly plan: validated signals at the bar (90%+, gate LIVE) and
+rule-based exits. The confidence slider only reveals what's next in line below that ("watch, not
+a signal"), from the queue saved with the same plan; it never turns a watch item into an action.
+Sells come first by urgency, holds riskiest first, buys by chance.
 """
 
 from __future__ import annotations
@@ -11,63 +12,159 @@ from html import escape
 
 import streamlit as st
 from views import ui
-from views.common import cfg
+from views.common import cfg, inr, lake
 
 from stockapp.cli import IST
 from stockapp.db import connect
+from stockapp.models.run import precision_at_bar
 from stockapp.plan.store import actions_for, latest_plan, log_action
 
-ACTIONS = (("done", "Done"), ("partly", "Partly"), ("skipped", "Skipped"))
-REASONS = ["", "price moved", "no cash", "disagreed", "other"]
+ACT_BAR = 0.90
+LOG = {"done": "Done", "skipped": "Skipped"}
+RULE_NAMES = {
+    "stop_loss": "Stop-loss hit",
+    "trailing_stop": "Trailing stop hit",
+    "time_stop": "Time's up",
+    "target_reached": "Target reached",
+}
 
 
-def _log_control(plan_id: int, key: str, logged: dict) -> None:
+@st.cache_data(ttl=3600, show_spinner=False)
+def _track(signal: str, bar: float) -> dict | None:
+    return precision_at_bar(lake(), cfg(), signal, bar)
+
+
+def _card(symbol: str, tag: str, tone: str, lines: list[str]) -> None:
+    body = "".join(f'<div class="sa-line">{escape(x)}</div>' for x in lines if x)
+    st.markdown(
+        f'<div class="sa-row"><span class="sa-sym">{escape(symbol)}</span>'
+        f"{ui.pill(tag, tone)}</div>{body}",
+        unsafe_allow_html=True,
+    )
+
+
+def _log(plan_id: int, key: str, logged: dict) -> None:
     current = logged.get(key)
-    labels = dict(ACTIONS)
-    left, right = st.columns([3, 2])
-    with left:
-        choice = st.segmented_control(
-            "Log what you did",
-            options=[v for v, _ in ACTIONS],
-            format_func=labels.get,
-            default=current["action"] if current else None,
-            key=f"log:{key}",
-            label_visibility="collapsed",
-        )
+    choice = st.segmented_control(
+        "Log",
+        list(LOG),
+        format_func=LOG.get,
+        default=current["action"] if current and current["action"] in LOG else None,
+        key=f"log:{key}",
+        label_visibility="collapsed",
+    )
     if choice and (current is None or choice != current["action"]):
         with connect() as conn:
             log_action(conn, plan_id, key, choice)
         st.rerun()
-    if current and current["action"] != "done":
-        with right:
-            why = st.selectbox(
-                "Why?",
-                REASONS,
-                key=f"why:{key}",
-                label_visibility="collapsed",
-                index=REASONS.index(current["reason"]) if current["reason"] in REASONS else 0,
-                format_func=lambda r: r or "Why? (optional)",
+
+
+def _mine(item: dict) -> str:
+    parts = []
+    if item.get("value") is not None:
+        parts.append(inr(item["value"]))
+    if item.get("return_pct") is not None:
+        parts.append(f"{item['return_pct']:+.1%} since you bought")
+    return " · ".join(parts)
+
+
+def _watch(key: str, symbol: str, tag: str, lines: list[str]) -> None:
+    with st.container(key=f"watch_{key}"):
+        _card(symbol, tag, "grey", lines)
+
+
+def _column_head(title: str, count: int, tone: str, hint: str) -> None:
+    st.markdown(
+        f'<div class="sa-colhead"><span>{escape(title)}</span>{ui.pill(str(count), tone)}</div>'
+        f'<div class="sa-colhint">{escape(hint)}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _buy(plan: dict, plan_id: int, logged: dict, bar: float, gain: float) -> None:
+    acts = plan["opportunities"]
+    queue = [w for w in plan.get("watch_buys", []) if (w["probability"] or 0) >= bar]
+    _column_head("Buy", len(acts), "green", "New stocks worth buying this week.")
+    for o in acts:
+        with st.container(border=True):
+            _card(
+                o["symbol"],
+                f"{o['probability']:.0%} sure",
+                "green",
+                [
+                    f"Buy {o['quantity']} shares near {inr(o['guide_price'], 2)}",
+                    f"Sell when it reaches {inr(o['sellout_price'], 2)} (+{gain:.0%})",
+                ],
             )
-        if why and why != current["reason"]:
-            with connect() as conn:
-                log_action(conn, plan_id, key, current["action"], why)
-            st.rerun()
-    if current:
-        when = current["acted_at"].astimezone(IST)
-        ui.muted(f"Logged {current['action']} · {when:%a %d %b, %H:%M}")
-
-
-def _item(plan_id: int, item: dict, tone: str, tag: str, logged: dict, key: str) -> None:
-    with st.container(border=True):
+            _log(plan_id, f"BUY:{o['company_id']}", logged)
+    if not acts:
+        with st.container(border=True):
+            st.markdown('<div class="sa-sym">Nothing to buy</div>', unsafe_allow_html=True)
+            ui.muted(
+                f"No stock is {ACT_BAR:.0%} sure to rise {gain:.0%} this week. Most weeks are "
+                "like this: waiting is a decision too."
+            )
+    for n in plan["notes"]:
+        if "paused" in n or "stress" in n:
+            st.warning(n[0].upper() + n[1:])
+    if queue:
         st.markdown(
-            f'<div class="sa-row"><div><span class="sa-sym">{escape(item["symbol"])}</span>'
-            f"&nbsp;&nbsp;{ui.pill(tag, tone)}</div></div>"
-            f'<div style="margin:.35rem 0 .2rem">{escape(item["headline"])}</div>',
+            '<div class="sa-watchhead">Up next · watch, don\'t buy</div>',
             unsafe_allow_html=True,
         )
-        if item.get("reason"):
-            ui.muted(f"Why: {item['reason']}")
-        _log_control(plan_id, key, logged)
+        for w in queue:
+            _watch(
+                f"b_{w['company_id']}",
+                w["symbol"],
+                f"{w['probability']:.0%} chance",
+                [f"Near {inr(w['guide_price'], 2)}"],
+            )
+
+
+def _sell(plan: dict, plan_id: int, logged: dict, watch: list[dict]) -> None:
+    acts = plan["exits"]
+    _column_head("Sell", len(acts), "red", "Stocks to sell, most urgent first.")
+    for e in acts:
+        with st.container(border=True):
+            if e.get("rule"):
+                tag, why = RULE_NAMES.get(e["rule"], "Rule"), e["reason"]
+            else:
+                tag, why = f"{e['probability']:.0%} drop risk", "Likely to fall 10%+ this week"
+            _card(e["symbol"], tag, "red", [why, _mine(e)])
+            _log(plan_id, f"SELL:{e['company_id']}", logged)
+    if not acts:
+        with st.container(border=True):
+            st.markdown('<div class="sa-sym">Nothing to sell</div>', unsafe_allow_html=True)
+            ui.muted("None of your stocks has hit a sell rule or a 90% drop warning.")
+    if watch:
+        st.markdown(
+            '<div class="sa-watchhead">Up next · watch, don\'t sell yet</div>',
+            unsafe_allow_html=True,
+        )
+        for h in watch:
+            _watch(
+                f"s_{h['company_id']}",
+                h["symbol"],
+                f"{h['probability']:.0%} drop risk",
+                [_mine(h)],
+            )
+
+
+def _hold(holds: list[dict]) -> None:
+    _column_head("Hold", len(holds), "grey", "Keep these. Riskiest first.")
+    with st.container(border=True):
+        if not holds:
+            ui.muted("Nothing else you own. Record your trades on Portfolio to see them here.")
+        for h in holds:
+            risk = (
+                f"{h['probability']:.0%} drop risk" if h.get("probability") is not None else "Hold"
+            )
+            st.markdown(
+                f'<div class="sa-holdrow"><div><span class="sa-sym">{escape(h["symbol"])}</span>'
+                f'<div class="sa-line">{escape(_mine(h))}</div></div>'
+                f'<span class="sa-muted">{escape(risk)}</span></div>',
+                unsafe_allow_html=True,
+            )
 
 
 def render() -> None:
@@ -75,98 +172,74 @@ def render() -> None:
         row = latest_plan(conn)
         logged = actions_for(conn, row["plan_id"]) if row else {}
     if row is None:
-        ui.header("This week", "No plan yet")
-        ui.hero(
-            "No plan yet",
-            "The plan is built on Friday evening, or run `uv run stockapp job weekly`.",
-        )
+        ui.header("This week")
+        ui.hero("No plan yet", "It's built every Friday evening after the market closes.")
         return
     plan = row["payload"]
     built = row["built_at"].astimezone(IST)
     ui.header(
-        f"Week of {row['week_of']:%a %d %b}",
-        f"Built {built:%a %d %b, %H:%M} from the NSE close of {row['signal_date']:%a %d %b}",
+        "This week",
+        f"Based on the market close of {row['signal_date']:%a %d %b} · "
+        f"updated {built:%a %d %b, %H:%M}",
     )
-
     if plan["status"] == "NO_SIGNAL":
         ui.hero(
-            "No signal this week",
-            f"{plan['status_reason']}. No actions until the data recovers.",
-            ui.pill("Data issue", "red"),
+            "No advice this week",
+            f"The market data didn't pass its checks ({plan['status_reason']}). The app won't "
+            "guess: hold everything until the data is fixed.",
         )
         return
 
-    n = len(plan["exits"]) + len(plan["opportunities"])
-    regime = plan["regime"]
-    gates = plan.get("gates", {})
-    pills = [
-        ui.pill(f"Data {plan['quality_score']:.0f}/100", "green"),
-        ui.pill(
-            "Stress regime" if regime["stress"] else "Market normal",
-            "red" if regime["stress"] else "grey",
-        ),
-    ]
-    for s, g in sorted(gates.items()):
-        pills.append(
-            ui.pill(f"Signal {s} {g['status']}", "green" if g["status"] == "LIVE" else "grey")
+    left, right = st.columns([2, 3], vertical_alignment="center")
+    with left:
+        pct = st.slider(
+            "Confidence",
+            min_value=5,
+            max_value=90,
+            value=90,
+            step=5,
+            format="%d%%",
+            key="confidence",
+            help="How sure the app must be before it lists a stock.",
         )
-    if n:
-        ui.hero(
-            f"{n} action{'s' if n != 1 else ''} this week",
-            "Act in Kite on Monday, then log what you did here.",
-            " ".join(pills),
-        )
-    else:
-        ui.hero("No action this week", "Hold all positions.", " ".join(pills))
-
-    dd = plan["drawdown"]
-    if dd["from_peak"] is not None and (dd["review"] or dd["pause_buys"]):
-        st.warning(
-            f"Portfolio {dd['from_peak']:.1%} from its peak (time-weighted): "
-            + ("new buys are paused." if dd["pause_buys"] else "time to review.")
-        )
-    for note in plan["notes"]:
-        if "drawdown" not in note:
-            st.warning(note[0].upper() + note[1:])
-
-    if plan["exits"]:
-        ui.section("Sell")
-        for item in plan["exits"]:
-            tag = "Exit rule" if item.get("rule") else "Crash risk"
-            _item(row["plan_id"], item, "red", tag, logged, f"SELL:{item['company_id']}")
-    if plan["opportunities"]:
-        ui.section("Opportunities · best expected gain first")
-        for item in plan["opportunities"]:
-            _item(row["plan_id"], item, "green", "Buy", logged, f"BUY:{item['company_id']}")
-
-    if plan["holds"]:
-        ui.section(f"Keep holding ({len(plan['holds'])})")
-        with st.container(border=True):
-            for item in plan["holds"]:
-                st.markdown(
-                    f'<div class="sa-row" style="padding:.25rem 0"><span class="sa-sym">'
-                    f'{escape(item["symbol"])}</span><span class="sa-muted">'
-                    f"{escape(item['reason'] or 'Hold')}</span></div>",
-                    unsafe_allow_html=True,
-                )
-
-    closest = plan.get("closest")
-    if closest and not plan["opportunities"] and not cfg().alerts.hide_closest_candidate:
-        ui.section("Closest candidate")
-        with st.container(border=True):
-            certainty = ui.pill(f"{closest['probability']:.0%} certainty", "grey")
-            note = f"Needs {closest['bar']:.0%}"
-            if closest["signal_status"] != "LIVE":
-                note += " · signal A is OFF (not yet validated)"
-            st.markdown(
-                f'<div class="sa-row"><div><span class="sa-sym">{escape(closest["symbol"])}'
-                f'</span>&nbsp;&nbsp;{certainty}</div><div class="sa-muted">{escape(note)}</div>'
-                "</div>",
-                unsafe_allow_html=True,
+    bar = pct / 100
+    with right:
+        if pct >= 90:
+            ui.muted(
+                "Act only on what's 90% sure. Slide left to peek at what's next in line: "
+                "those are to watch, not to act on."
             )
-            if closest["reason"]:
-                ui.muted(f"Drivers: {closest['reason']}")
+        else:
+            a, c = _track("A", bar), _track("C", bar)
+            parts = []
+            if a and a["signals"]:
+                parts.append(f"buy calls rose as hoped {a['precision']:.0%} of the time")
+            if c and c["signals"]:
+                parts.append(f"drop warnings came true {c['precision']:.0%} of the time")
+            ui.muted(
+                f"At {pct}% in past years (2018 on), "
+                + (" and ".join(parts) if parts else "there were too few calls to tell")
+                + ". Watch these; don't act on them."
+            )
 
-    ui.section("Context")
-    ui.muted(f"Market regime: {regime['reason']}.")
-    ui.muted("Events this week: not available yet (results dates and announcements come later).")
+    holds = plan["holds"]
+    sell_watch = [h for h in holds if (h.get("probability") or 0) >= bar]
+    keep = [h for h in holds if h not in sell_watch]
+    gain = cfg().signals.gain_threshold
+
+    b, h, s = st.columns(3, gap="medium")
+    with b:
+        _buy(plan, row["plan_id"], logged, bar, gain)
+    with h:
+        _hold(keep)
+    with s:
+        _sell(plan, row["plan_id"], logged, sell_watch)
+
+    gates = plan.get("gates", {})
+    if any(g["status"] != "LIVE" for g in gates.values()):
+        st.markdown('<div style="height:1.5rem"></div>', unsafe_allow_html=True)
+        ui.muted(
+            "The buy and drop predictions haven't yet proven 90% accurate in testing, so for now "
+            "only rule-based sells (like a stop-loss) can be acted on. Rules are shown without a "
+            "percentage because they're rules, not predictions."
+        )

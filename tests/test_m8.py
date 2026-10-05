@@ -273,3 +273,38 @@ def test_next_monday():
     assert next_monday(date(2026, 10, 2)) == date(2026, 10, 5)  # Friday -> Monday
     assert next_monday(date(2026, 10, 1)) == date(2026, 10, 5)  # Thursday (Friday holiday)
     assert next_monday(date(2026, 10, 5)) == date(2026, 10, 12)
+
+
+def test_buckets_cover_the_portfolio_sells_by_urgency_holds_riskiest_first():
+    cands = [
+        cand("SAFE", p_c=0.02),
+        cand("RISKY", p_c=0.6),
+        cand("CRASH", p_c=0.95),
+        cand("LOSER", p_c=0.01),
+        cand("TARGET", p_c=0.01),
+    ]
+    holdings = [
+        hold("SAFE", quantity=10),
+        hold("RISKY"),
+        hold("CRASH"),
+        hold("LOSER", cost=100, last=80),  # stop loss, the deepest loss
+        hold("TARGET", cost=100, last=125, opened_by_signal_a=True, net_profit_if_sold=500.0),
+    ]
+    p = plan(cands, holdings)
+    assert [i.symbol for i in p.exits] == ["LOSER", "TARGET", "CRASH"]  # losses, rules, model
+    assert [i.symbol for i in p.holds] == ["RISKY", "SAFE"]  # riskiest first
+    assert {i.symbol for i in p.exits + p.holds} == {h.symbol for h in holdings}
+    safe = p.holds[1]
+    assert safe.probability == 0.02 and safe.value == 1000.0 and safe.return_pct == 0.0
+    assert p.exits[0].return_pct == pytest.approx(-0.2)
+
+
+def test_watch_queue_ranks_unchosen_candidates_even_when_off():
+    cands = [cand(f"S{i}", p_a=i / 100) for i in range(30)] + [cand("HELD", p_a=0.99)]
+    p = plan(cands, [hold("HELD")], gates=OFF)
+    assert p.opportunities == []
+    assert [i.symbol for i in p.watch_buys][:3] == ["S29", "S28", "S27"]  # held never listed
+    assert len(p.watch_buys) == 15 and p.watch_buys[0].probability == 0.29
+    live = plan([cand("TOP", p_a=0.95), cand("NEXT", p_a=0.5)])
+    assert [o.symbol for o in live.opportunities] == ["TOP"]
+    assert [w.symbol for w in live.watch_buys] == ["NEXT"]  # chosen ones aren't repeated

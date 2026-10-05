@@ -34,7 +34,7 @@ def render() -> None:
         loaded = service.load(conn, lake(), cfg(), today)
     view, t = loaded.view, loaded.view.totals
     subtitle = (
-        f"Valued at the NSE close of {view.data_as_of:%a %d %b %Y} · end of day, no intraday quotes"
+        f"Valued at the market close of {view.data_as_of:%a %d %b %Y}"
         if view.data_as_of
         else "No prices yet"
     )
@@ -43,83 +43,83 @@ def render() -> None:
     unreal_pct = (t["unrealised"] / t["invested"]) if t["invested"] else None
     ui.kpis(
         [
-            ("Current value", inr(t["value"]), None, "grey"),
-            ("Invested", inr(t["invested"]), "incl. buy charges", "grey"),
+            ("Worth now", inr(t["value"]), None, "grey"),
+            ("You put in", inr(t["invested"]), "including fees", "grey"),
             (
-                "Unrealised",
+                "Gain so far",
                 inr(t["unrealised"]),
                 f"{unreal_pct:+.2%}" if unreal_pct is not None else None,
                 ui.tone_for(t["unrealised"]),
             ),
-            ("Realised", inr(t["realised"]), None, "grey"),
             ("Today", inr(t["day_change"]), None, ui.tone_for(t["day_change"])),
         ]
     )
     if view.warnings:
-        st.warning("**Check these:**\n" + "\n".join(f"- {w}" for w in view.warnings))
+        st.warning("\n".join(f"- {w}" for w in view.warnings))
+    if not view.holdings.is_empty() and view.holdings["stale"].any():
+        st.error("Some prices are stale: no new advice on those until they trade again.")
 
+    ui.section("Record a trade")
+    with st.container(border=True):
+        ui.muted("Bought or sold something in Kite? Add it here so This week stays accurate.")
+        _add_trade()
+
+    ui.section("More")
+    with st.expander("Import everything from Kite"):
+        _import_kite()
+    with st.expander(f"Your holdings in detail ({view.holdings.height})"):
+        _holdings(view, t)
+    with st.expander("How you're doing vs the Nifty 50"):
+        _chart()
+    with st.expander(f"All trades ({len(loaded.transactions)})"):
+        _transactions(loaded)
+    with st.expander(f"Sold so far ({len(loaded.ledger.realised)})"):
+        ui.muted(f"Profit from sales: {inr(t['realised'])}")
+        _realised(loaded)
+
+
+def _holdings(view, t) -> None:
     h = view.holdings
     if h.is_empty():
-        ui.hero(
-            "No holdings yet",
-            "Add a trade below, or import your holdings CSV from Kite.",
-        )
-    else:
-        if h["stale"].any():
-            st.error("Some prices are stale: no new actions on those until they trade again.")
-        ui.section("Holdings")
-        table = h.select(
-            pl.col("symbol").alias("Stock"),
-            pl.col("sector").alias("Sector"),
-            pl.col("quantity").alias("Qty"),
-            pl.col("avg_cost").alias("Avg cost"),
-            pl.col("last_price").alias("Last"),
-            pl.col("value").alias("Value"),
-            pl.col("unrealised").alias("Gain / loss"),
-            (pl.col("unrealised_pct") / 100).alias("Return"),
-            (pl.col("weight_pct") / 100).alias("Weight"),
-            pl.when(pl.col("stale"))
-            .then(pl.lit("Stale price"))
-            .otherwise(pl.lit("Hold"))
-            .alias("Status"),
-        )
-        st.dataframe(
-            table,
-            hide_index=True,
-            width="stretch",
-            column_config={
-                "Avg cost": MONEY(format="₹%.2f"),
-                "Last": MONEY(format="₹%.2f"),
-                "Value": MONEY(format="₹%.0f"),
-                "Gain / loss": MONEY(format="₹%.0f"),
-                "Return": MONEY(format="percent"),
-                "Weight": st.column_config.ProgressColumn(
-                    format="percent", min_value=0.0, max_value=1.0
-                ),
-            },
-        )
-        ui.muted(
-            f"Estimated tax if everything were sold today: {inr(t['tax_if_sold'])} (indicative)."
-        )
-        _chart()
-
-    ui.section("Trades")
-    add, imp, txns, realised = st.tabs(
-        [
-            "Add a trade",
-            "Import from Kite",
-            f"Transactions ({len(loaded.transactions)})",
-            f"Realised ({len(loaded.ledger.realised)})",
-        ]
+        ui.muted("No holdings yet.")
+        return
+    table = h.select(
+        pl.col("symbol").alias("Stock"),
+        pl.col("sector").alias("Sector"),
+        pl.col("quantity").alias("Qty"),
+        pl.col("avg_cost").alias("Avg cost"),
+        pl.col("last_price").alias("Last"),
+        pl.col("value").alias("Value"),
+        pl.col("unrealised").alias("Gain / loss"),
+        (pl.col("unrealised_pct") / 100).alias("Return"),
+        (pl.col("weight_pct") / 100).alias("Weight"),
     )
-    with add:
-        _add_trade()
-    with imp:
-        _import_kite()
-    with txns:
-        _transactions(loaded)
-    with realised:
-        _realised(loaded)
+    st.dataframe(
+        table,
+        hide_index=True,
+        width="stretch",
+        column_config={
+            "Avg cost": MONEY(format="₹%.2f"),
+            "Last": MONEY(format="₹%.2f"),
+            "Value": MONEY(format="₹%.0f"),
+            "Gain / loss": MONEY(format="₹%.0f"),
+            "Return": MONEY(format="percent"),
+            "Weight": st.column_config.ProgressColumn(
+                format="percent", min_value=0.0, max_value=1.0
+            ),
+        },
+    )
+    ui.muted(f"Estimated tax if you sold everything today: {inr(t['tax_if_sold'])}.")
+
+
+def _refresh_plan() -> None:
+    """Holdings changed: rebuild this week's buckets so they match the portfolio."""
+    if not lake().has_table("gold", "latest_scores"):
+        return
+    from stockapp.pipeline import build_weekly_plan
+
+    with st.spinner("Updating this week's advice..."), connect() as conn:
+        build_weekly_plan(conn, lake(), cfg(), date.today())
 
 
 @st.cache_data(ttl=300)
@@ -131,8 +131,8 @@ def _history() -> pl.DataFrame:
 def _chart() -> None:
     hist = _history()
     if hist.height < 2:
+        ui.muted("Shows up once you have a few days of history.")
         return
-    ui.section("Value vs Nifty 50 (same cash flows)")
     chart = hist.select(
         pl.col("trade_date").alias("Date"),
         pl.col("value").alias("Your portfolio"),
@@ -149,20 +149,19 @@ def _chart() -> None:
 
 def _add_trade() -> None:
     a, b, c = st.columns([2, 1, 1])
-    symbol = a.selectbox("Stock (NSE symbol)", _symbols(), index=None, placeholder="Type to search")
-    side = b.segmented_control("Side", ["BUY", "SELL"], default="BUY")
-    trade_date = c.date_input("Trade date", value=date.today(), max_value=date.today())
-    d, e, f = st.columns(3)
-    qty = d.number_input("Quantity", min_value=1, step=1, value=1)
+    symbol = a.selectbox("Stock", _symbols(), index=None, placeholder="Type a name, e.g. TCS")
+    side = b.segmented_control("Bought or sold", ["BUY", "SELL"], default="BUY")
+    trade_date = c.date_input("On", value=date.today(), max_value=date.today())
+    d, e = st.columns(2)
+    qty = d.number_input("Shares", min_value=1, step=1, value=1)
     price = e.number_input("Price per share (₹)", min_value=0.01, step=0.05, format="%.2f")
-    charges_text = f.text_input("Charges (₹)", value="", placeholder="Blank = estimate")
-    note = st.text_input("Note", placeholder="Optional")
     est = order_charges(side or "BUY", int(qty), float(price), cfg().costs)
-    ui.muted(
-        f"Estimated charges {inr(est.total, 2)}: STT {inr(est.stt, 2)} · exchange "
-        f"{inr(est.exchange, 2)} · SEBI {inr(est.sebi, 2)} · GST {inr(est.gst, 2)} · stamp "
-        f"{inr(est.stamp, 2)} · DP {inr(est.dp, 2)}"
-    )
+    with st.expander(f"Fees and note · fees estimated at {inr(est.total, 2)}"):
+        f, g = st.columns(2)
+        charges_text = f.text_input(
+            "Actual fees (₹)", value="", placeholder="Leave blank to use the estimate"
+        )
+        note = g.text_input("Note", placeholder="Optional")
     if st.button("Save trade", type="primary", disabled=symbol is None or side is None):
         try:
             charges = float(charges_text) if charges_text.strip() else None
@@ -191,6 +190,7 @@ def _add_trade() -> None:
             st.error(f"Not saved: {exc}")
             return
         _history.clear()
+        _refresh_plan()
         st.success("Saved.")
         st.rerun()
 
@@ -230,6 +230,7 @@ def _import_kite() -> None:
             st.error(f"Not imported: {exc}")
             return
         _history.clear()
+        _refresh_plan()
         st.success(f"Imported {len(plan.ready)} holdings.")
         st.rerun()
 
@@ -278,6 +279,7 @@ def _transactions(loaded: service.Loaded) -> None:
             st.error(f"Can't delete: {exc}. Delete or edit the later sale first.")
             return
         _history.clear()
+        _refresh_plan()
         st.success("Deleted.")
         st.rerun()
 

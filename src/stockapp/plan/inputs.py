@@ -176,6 +176,7 @@ def holdings(
                 peak_close_since_buy=float(since["adj_close"].max()) if since.height else None,
                 sessions_held=since.height if first_buy else None,
                 net_profit_if_sold=gain - tax,
+                quantity=qty,
             )
         )
 

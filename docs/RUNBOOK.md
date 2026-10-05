@@ -21,8 +21,8 @@ job runs once when the Mac wakes. Plugged in with the lid open is safest on Frid
 uv run streamlit run app/streamlit_app.py
 ```
 
-The four screens are This Week, Portfolio, Monthly Audit and Settings. Log Done / Partly / Skipped
-on each action. Add trades on Portfolio, or import your Kite holdings CSV there.
+The four screens are This week (Buy | Hold | Sell), Portfolio, Track record and Settings. Log Done
+or Skipped on each action. Slide "Confidence" below 90% to see what's next in line (watch only). Add trades on Portfolio, or import your Kite holdings CSV there.
 
 The app runs only on this Mac (http://localhost:8501). Change budget, certainty bar, caps, costs
 and the goal on Settings: saving applies at once (the week's plan is rebuilt and signal status

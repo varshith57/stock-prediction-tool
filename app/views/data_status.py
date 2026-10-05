@@ -27,8 +27,8 @@ def sidebar_status() -> None:
         return
     ok = s["score"] >= cfg().data.min_quality_score
     st.markdown(
-        ui.pill(f"Data {'OK' if ok else 'issue'} · {s['score']:.0f}/100", "green" if ok else "red")
-        + f'<div class="sa-foot" style="margin-top:.4rem">NSE close of {s["as_of"]:%a %d %b %Y}'
+        ui.pill("Market data OK" if ok else "Market data problem", "green" if ok else "red")
+        + f'<div class="sa-foot" style="margin-top:.4rem">Up to the close of {s["as_of"]:%a %d %b}'
         "</div>",
         unsafe_allow_html=True,
     )
@@ -40,6 +40,6 @@ def quality_alert() -> None:
         st.warning("No data yet: run `uv run stockapp quality build`.")
     elif s["score"] < cfg().data.min_quality_score:
         st.error(
-            f"Data quality {s['score']:.0f}/100 on {s['as_of']:%a %d %b} is below "
-            f"{cfg().data.min_quality_score:g}: NO SIGNAL until it recovers."
+            f"The market data for {s['as_of']:%a %d %b} didn't pass its checks "
+            f"({s['score']:.0f}/100). No advice until it's fixed: the app won't guess."
         )

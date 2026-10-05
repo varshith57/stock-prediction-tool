@@ -76,16 +76,13 @@ nav = st.navigation(
             icon=":material/account_balance_wallet:",
             url_path="portfolio",
         ),
-        st.Page(
-            audit.render, title="Monthly audit", icon=":material/fact_check:", url_path="audit"
-        ),
+        st.Page(audit.render, title="Track record", icon=":material/fact_check:", url_path="audit"),
         st.Page(settings.render, title="Settings", icon=":material/tune:", url_path="settings"),
     ]
 )
 
 with st.sidebar:
     st.markdown('<div style="height:1.2rem"></div>', unsafe_allow_html=True)
-    ui.muted("Nifty 500 · weekly decisions")
     data_status.sidebar_status()
     if login_skipped():
         st.markdown(ui.pill("Login off (development)", "amber"), unsafe_allow_html=True)

@@ -16,45 +16,45 @@ import polars as pl
 import streamlit as st
 from pydantic import ValidationError
 from views import ui
-from views.common import inr, lake
+from views.common import lake
 
 from stockapp import background, settings_store
 from stockapp.config import AppConfig
 from stockapp.db import connect
 from stockapp.goal import feasibility
-from stockapp.models.run import precision_at_bar, reevaluate_gate
+from stockapp.models.run import reevaluate_gate
 
 LABELS = {
     "budget.weekly_inr": "Weekly budget",
-    "budget.min_position_inr": "Minimum position",
-    "signals.gain_threshold": "Gain threshold",
-    "signals.crash_threshold": "Crash threshold",
-    "signals.window_trading_days": "Signal window",
-    "signals.certainty_bar": "Certainty bar",
-    "signals.max_opportunities": "Max opportunities a week",
-    "signals.gate.min_signals": "Minimum validated signals",
-    "signals.gate.min_wilson_lower_bound": "Minimum lower bound",
-    "risk.max_stock_weight": "Per-stock cap",
-    "risk.max_sector_weight": "Per-sector cap",
-    "risk.stop_atr_multiple": "Stop distance",
-    "risk.trailing_stop_atr_multiple": "Trailing stop",
-    "risk.drawdown_review": "Drawdown review level",
-    "risk.drawdown_pause": "Drawdown pause level",
-    "risk.stress_vix_percentile": "Stress regime VIX percentile",
-    "universe.size": "Universe size",
-    "data.min_quality_score": "Minimum data quality",
-    "alerts.telegram_enabled": "Telegram alerts",
+    "budget.min_position_inr": "Smallest buy",
+    "signals.gain_threshold": "Rise to look for",
+    "signals.crash_threshold": "Drop to warn about",
+    "signals.window_trading_days": "Within (market days)",
+    "signals.certainty_bar": "Accuracy needed to act",
+    "signals.max_opportunities": "Buy ideas a week",
+    "signals.gate.min_signals": "Past calls needed as proof",
+    "signals.gate.min_wilson_lower_bound": "Worst-case accuracy needed",
+    "risk.max_stock_weight": "Most in one stock",
+    "risk.max_sector_weight": "Most in one industry",
+    "risk.stop_atr_multiple": "Stop-loss distance",
+    "risk.trailing_stop_atr_multiple": "Lock in gains",
+    "risk.drawdown_review": "Heads-up when down",
+    "risk.drawdown_pause": "Stop new buys when down",
+    "risk.stress_vix_percentile": "Nervous-market level",
+    "universe.size": "Stocks to scan",
+    "data.min_quality_score": "Data quality needed",
+    "alerts.telegram_enabled": "Phone alerts",
     "alerts.max_per_week": "Alerts a week",
     "alerts.hide_closest_candidate": "Hide closest candidate",
-    "goal.target_monthly_return": "Goal",
-    "costs.brokerage": "Brokerage",
+    "goal.target_monthly_return": "Monthly return goal",
+    "costs.brokerage": "Broker fee",
     "costs.stt_rate": "STT",
     "costs.stamp_duty_buy_rate": "Stamp duty",
-    "costs.exchange_txn_rate": "NSE charge",
+    "costs.exchange_txn_rate": "Exchange fee",
     "costs.sebi_fee_rate": "SEBI fee",
-    "costs.dp_charge_per_scrip_sell_inr": "DP charge",
+    "costs.dp_charge_per_scrip_sell_inr": "Sell fee per stock",
     "costs.gst_rate": "GST",
-    "costs.slippage_bps": "Slippage",
+    "costs.slippage_bps": "Price slip",
     "tax.stcg_rate": "Short-term tax",
     "tax.ltcg_rate": "Long-term tax",
     "tax.ltcg_exemption_inr": "Long-term exemption",
@@ -113,7 +113,7 @@ def _moves(text: str) -> None:
 
 
 def _main_inputs(c: AppConfig, v: dict) -> bool:
-    """The few settings that change what you're shown each week."""
+    """The few settings that change what you're told to do each week."""
     ui.section("Your inputs")
     with st.container(border=True, key="sa_main"):
         a, b, d = st.columns(3)
@@ -121,181 +121,206 @@ def _main_inputs(c: AppConfig, v: dict) -> bool:
             v["budget"]["weekly_inr"] = st.number_input(
                 "Weekly budget (₹)", value=float(c.budget.weekly_inr), min_value=1.0, step=500.0
             )
-            _moves("Cash added each week for new buys. It builds up until a buy uses it.")
+            _moves("New money you add each week. Whatever isn't spent rolls over.")
         with b:
             v["budget"]["min_position_inr"] = st.number_input(
-                "Minimum position (₹)",
+                "Smallest buy (₹)",
                 value=float(c.budget.min_position_inr),
                 min_value=1.0,
                 step=500.0,
             )
-            _moves("Smallest buy suggested. Higher means fewer, larger buys.")
+            _moves("Buys smaller than this aren't worth it: fees would eat the profit.")
         with d:
+            v["risk"]["max_stock_weight"] = _pct(
+                "Most in one stock", c.risk.max_stock_weight, min_value=1.0
+            )
+            _moves(
+                "The most of your money any one company can take, so one bad pick can't sink you."
+            )
+        a, b, d = st.columns(3)
+        with a:
             v["signals"]["max_opportunities"] = st.number_input(
-                "Buy ideas a week (max)",
+                "Buy ideas a week",
                 value=min(c.signals.max_opportunities, 5),
                 min_value=0,
                 max_value=5,
                 step=1,
             )
-            _moves("How many opportunities you see, best expected gain first. 5 at most.")
-        a, b, d = st.columns(3)
-        with a:
-            v["risk"]["max_stock_weight"] = _pct(
-                "Per-stock cap", c.risk.max_stock_weight, min_value=1.0
-            )
-            _moves("Most of the portfolio in one stock. Sets the size of each buy.")
+            _moves("The most stocks you'll be told to buy in one week (5 at most).")
         with b:
-            v["risk"]["max_sector_weight"] = _pct(
-                "Per-sector cap", c.risk.max_sector_weight, min_value=1.0
+            st.markdown('<div style="height:1.9rem"></div>', unsafe_allow_html=True)
+            v["alerts"]["telegram_enabled"] = st.toggle(
+                "Phone alerts", value=c.alerts.telegram_enabled
             )
-            _moves("Most in one sector. Buys that would break it are skipped.")
-        with d:
-            current_goal = c.goal.target_monthly_return
-            goal = _pct(
-                "Monthly return goal",
-                current_goal or 0.0,
-                step=0.25,
-                min_value=0.0,
-                max_value=100.0,
-            )
-            v["goal"]["target_monthly_return"] = goal or None
-            _moves("Compared with history below. Never changes recommendations. 0 = off.")
+            _moves("A short Telegram message when there's something to do (3 a week at most).")
         note = st.text_input(
             "What changed and why (optional)",
-            placeholder="e.g. raised budget",
+            placeholder="Note for yourself, e.g. raised budget",
             label_visibility="collapsed",
         )
         v["_note"] = note
         return st.form_submit_button("Save and apply", type="primary", icon=":material/check:")
 
 
+def _status_line() -> str:
+    rows = {r["signal"]: r for r in _gate_rows()}
+    names = {"A": "Buy predictions", "C": "Drop predictions"}
+    parts = []
+    for s, name in names.items():
+        r = rows.get(s)
+        if r is None:
+            continue
+        state = "on" if r["status"] == "LIVE" else "off, not yet 90% accurate in testing"
+        parts.append(f"{name}: {state}")
+    return " · ".join(parts)
+
+
 def _set_once(c: AppConfig, v: dict) -> bool:
-    """Rarely changed: shown toned down and folded away."""
+    """Rarely changed: shown toned down and folded away, each with a plain one-liner."""
     st.markdown(
         '<div class="sa-section sa-quiet-title">Set once · rarely changed</div>',
         unsafe_allow_html=True,
     )
     with st.container(key="sa_quiet"):
-        _moves(
-            "Defaults come from the PRD and the validated models. Most people never touch these."
-        )
-        with st.expander(
-            f"Signals and validation · bar {c.signals.certainty_bar:.0%}, "
-            f"+{c.signals.gain_threshold:.0%} / -{c.signals.crash_threshold:.0%} in "
-            f"{c.signals.window_trading_days} days"
-        ):
+        _moves("Sensible defaults are already filled in. Hover the ? next to any box for more.")
+        with st.expander("How the predictions work"):
+            status = _status_line()
+            if status:
+                _moves(f"Right now: {status}.")
             a, b, d = st.columns(3)
             with a:
                 v["signals"]["gain_threshold"] = _pct(
-                    "Gain threshold (A)",
+                    "Rise to look for",
                     c.signals.gain_threshold,
                     min_value=1.0,
                     max_value=50.0,
-                    help="Retrain needed after a change.",
+                    help="A buy means the stock should rise at least this much in the time "
+                    "below. Changing it means retraining (about an hour).",
                 )
             with b:
                 v["signals"]["crash_threshold"] = _pct(
-                    "Crash threshold (C)",
+                    "Drop to warn about",
                     c.signals.crash_threshold,
                     min_value=1.0,
                     max_value=50.0,
-                    help="Retrain needed after a change.",
+                    help="A sell warning means the stock may fall at least this much. "
+                    "Changing it means retraining.",
                 )
             v["signals"]["window_trading_days"] = d.number_input(
-                "Window (trading days)",
+                "Within (market days)",
                 value=c.signals.window_trading_days,
                 min_value=1,
                 max_value=20,
                 step=1,
-                help="Retrain needed after a change.",
+                help="How many market days the rise or drop has to happen in. 5 is one week. "
+                "Changing it means retraining.",
             )
             a, b, d = st.columns(3)
             with a:
                 v["signals"]["certainty_bar"] = _pct(
-                    "Certainty bar",
+                    "Accuracy needed to act",
                     max(c.signals.certainty_bar, 0.9),
                     min_value=90.0,
                     max_value=99.0,
-                    help="Signals show only at or above this validated precision (never below "
-                    "90%). Use the explorer below to see what a lower bar would have meant.",
+                    help="How often similar past calls must have been right before the app "
+                    "tells you to act. Never below 90%.",
                 )
             with b:
                 v["signals"]["gate"]["min_wilson_lower_bound"] = _pct(
-                    "Minimum lower bound",
+                    "Worst-case accuracy needed",
                     c.signals.gate.min_wilson_lower_bound,
                     min_value=40.0,
                     max_value=99.0,
-                    help="95% confidence lower bound the gate also requires.",
+                    help="Even allowing for luck in the test, accuracy must be at least this.",
                 )
             v["signals"]["gate"]["min_signals"] = d.number_input(
-                "Minimum validated signals", value=c.signals.gate.min_signals, min_value=10, step=5
+                "Past calls needed as proof",
+                value=c.signals.gate.min_signals,
+                min_value=10,
+                step=5,
+                help="How many past calls the test needs before its accuracy counts.",
             )
-            _moves("Changing thresholds or the window needs a retrain (offered after saving).")
 
         trail_now = c.risk.trailing_stop_atr_multiple
-        with st.expander(
-            f"Risk rules · stop {c.risk.stop_atr_multiple:g}x ATR, review at "
-            f"{c.risk.drawdown_review:.0%}, pause at {c.risk.drawdown_pause:.0%}"
-        ):
+        with st.expander("Safety rules"):
+            _moves("Automatic rules that protect your money. They're rules, not predictions.")
             a, b, d = st.columns(3)
             v["risk"]["stop_atr_multiple"] = a.number_input(
-                "Stop distance (x ATR below cost)",
+                "Stop-loss distance",
                 value=float(c.risk.stop_atr_multiple),
                 min_value=0.5,
                 max_value=10.0,
                 step=0.5,
+                help="Sell when a stock falls this many 'normal days' below what you paid. A "
+                "normal day is its typical daily swing; 2 means about two days' worth.",
             )
-            trailing_on = b.toggle("Trailing stop", value=trail_now is not None)
+            trailing_on = b.toggle(
+                "Lock in gains",
+                value=trail_now is not None,
+                help="Also sell when a stock falls back this far from its best price since "
+                "you bought (a trailing stop).",
+            )
             trail = d.number_input(
-                "Trailing distance (x ATR)",
+                "Lock-in distance",
                 value=float(trail_now or 3.0),
                 min_value=0.5,
                 max_value=10.0,
                 step=0.5,
+                help="How far (in normal days) a stock may fall from its best before you sell.",
             )
             v["risk"]["trailing_stop_atr_multiple"] = trail if trailing_on else None
             a, b, d = st.columns(3)
             with a:
                 v["risk"]["drawdown_review"] = -_pct(
-                    "Review when down", -c.risk.drawdown_review, min_value=1.0, max_value=60.0
+                    "Heads-up when down",
+                    -c.risk.drawdown_review,
+                    min_value=1.0,
+                    max_value=60.0,
+                    help="A warning when your whole portfolio is this far below its best value.",
                 )
             with b:
                 v["risk"]["drawdown_pause"] = -_pct(
-                    "Pause new buys when down",
+                    "Stop new buys when down",
                     -c.risk.drawdown_pause,
                     min_value=1.0,
                     max_value=60.0,
+                    help="No new buys while your portfolio is this far below its best value.",
                 )
             with d:
-                v["risk"]["stress_vix_percentile"] = _pct(
-                    "Stress: VIX percentile",
-                    c.risk.stress_vix_percentile,
-                    min_value=50.0,
-                    max_value=99.0,
-                    help="Plus Nifty 500 below its 200-day average.",
+                v["risk"]["max_sector_weight"] = _pct(
+                    "Most in one industry",
+                    c.risk.max_sector_weight,
+                    min_value=1.0,
+                    help="The most of your money one industry (like banks) can hold.",
                 )
+            v["risk"]["stress_vix_percentile"] = _pct(
+                "Nervous-market level",
+                c.risk.stress_vix_percentile,
+                min_value=50.0,
+                max_value=99.0,
+                help="New buys pause when India's fear index (VIX) is above this share of its "
+                "past year and the market is falling.",
+            )
 
-        with st.expander(
-            f"Data and alerts · top {c.universe.size}, Telegram "
-            f"{'on' if c.alerts.telegram_enabled else 'off'}"
-        ):
+        with st.expander("Data and alerts"):
             a, b, d = st.columns(3)
             v["universe"]["size"] = a.number_input(
-                "Universe size (top N by turnover)",
+                "Stocks to scan",
                 value=c.universe.size,
                 min_value=50,
                 max_value=1000,
                 step=50,
-                help="Retrain needed after a change.",
+                help="How many of India's most traded stocks the app looks at. Changing it "
+                "means retraining.",
             )
             v["data"]["min_quality_score"] = b.number_input(
-                "Minimum data quality (0-100)",
+                "Data quality needed (out of 100)",
                 value=float(c.data.min_quality_score),
                 min_value=50.0,
                 max_value=100.0,
                 step=1.0,
-                help="Below this: NO SIGNAL.",
+                help="If the day's market data scores below this, the app gives no advice "
+                "rather than guess.",
             )
             v["alerts"]["max_per_week"] = d.number_input(
                 "Alerts a week (max 3)",
@@ -303,57 +328,97 @@ def _set_once(c: AppConfig, v: dict) -> bool:
                 min_value=0,
                 max_value=3,
                 step=1,
-            )
-            a, b = st.columns(2)
-            v["alerts"]["telegram_enabled"] = a.toggle(
-                "Telegram alerts", value=c.alerts.telegram_enabled
-            )
-            v["alerts"]["hide_closest_candidate"] = b.toggle(
-                "Hide the closest-candidate line", value=c.alerts.hide_closest_candidate
+                help="Sell-rule alerts always get through.",
             )
 
-        with st.expander("Charges and tax · Zerodha delivery, indicative tax"):
+        with st.expander("Fees and tax"):
+            _moves(
+                "Used to work out real profit after costs. Zerodha delivery rates are filled in."
+            )
             k = c.costs
             a, b, d, e = st.columns(4)
             with a:
-                v["costs"]["stt_rate"] = _pct("STT each side", k.stt_rate, step=0.01)
+                v["costs"]["stt_rate"] = _pct(
+                    "STT", k.stt_rate, step=0.01, help="Government tax on every buy and sell."
+                )
             with b:
                 v["costs"]["stamp_duty_buy_rate"] = _pct(
-                    "Stamp duty (buy)", k.stamp_duty_buy_rate, step=0.001
+                    "Stamp duty",
+                    k.stamp_duty_buy_rate,
+                    step=0.001,
+                    help="State tax charged when you buy.",
                 )
             with d:
                 v["costs"]["exchange_txn_rate"] = _pct(
-                    "NSE charge", k.exchange_txn_rate, step=0.0001
+                    "Exchange fee", k.exchange_txn_rate, step=0.0001, help="NSE's fee per trade."
                 )
             with e:
-                v["costs"]["sebi_fee_rate"] = _pct("SEBI fee", k.sebi_fee_rate, step=0.0001)
+                v["costs"]["sebi_fee_rate"] = _pct(
+                    "SEBI fee", k.sebi_fee_rate, step=0.0001, help="The market regulator's fee."
+                )
             a, b, d, e = st.columns(4)
             with a:
-                v["costs"]["gst_rate"] = _pct("GST", k.gst_rate, step=1.0)
+                v["costs"]["gst_rate"] = _pct(
+                    "GST", k.gst_rate, step=1.0, help="GST charged on the fees above."
+                )
             v["costs"]["dp_charge_per_scrip_sell_inr"] = b.number_input(
-                "DP charge per sale (₹)",
+                "Sell fee per stock (₹)",
                 value=float(k.dp_charge_per_scrip_sell_inr),
                 min_value=0.0,
                 step=0.5,
+                help="Fixed depository fee for each stock you sell on a day.",
             )
             v["costs"]["brokerage"] = d.number_input(
-                "Brokerage (₹)", value=float(k.brokerage), min_value=0.0, step=1.0
+                "Broker fee (₹)",
+                value=float(k.brokerage),
+                min_value=0.0,
+                step=1.0,
+                help="Per order. Zerodha charges nothing for delivery trades.",
             )
             v["costs"]["slippage_bps"] = e.number_input(
-                "Slippage (bps)", value=float(k.slippage_bps), min_value=0.0, step=1.0
+                "Price slip (bps)",
+                value=float(k.slippage_bps),
+                min_value=0.0,
+                step=1.0,
+                help="Allowance for paying a bit more or selling a bit lower than the quoted "
+                "price. 100 bps = 1%.",
             )
             t = c.tax
             a, b, d = st.columns(3)
             with a:
-                v["tax"]["stcg_rate"] = _pct("Short-term tax", t.stcg_rate, step=0.5)
+                v["tax"]["stcg_rate"] = _pct(
+                    "Tax: held under a year",
+                    t.stcg_rate,
+                    step=0.5,
+                    help="Tax on profit from shares sold within a year of buying.",
+                )
             with b:
-                v["tax"]["ltcg_rate"] = _pct("Long-term tax", t.ltcg_rate, step=0.5)
+                v["tax"]["ltcg_rate"] = _pct(
+                    "Tax: held over a year",
+                    t.ltcg_rate,
+                    step=0.5,
+                    help="Tax on profit from shares held longer than a year.",
+                )
             v["tax"]["ltcg_exemption_inr"] = d.number_input(
-                "Long-term exemption a year (₹)",
+                "Tax-free profit a year (₹)",
                 value=float(t.ltcg_exemption_inr),
                 min_value=0.0,
                 step=5000.0,
+                help="Long-term profit up to this each year is tax-free.",
             )
+
+        with st.expander("Monthly goal (optional)"):
+            current_goal = c.goal.target_monthly_return
+            goal = _pct(
+                "Monthly return goal",
+                current_goal or 0.0,
+                step=0.25,
+                min_value=0.0,
+                max_value=100.0,
+                help="Only for comparison with history. It never changes the advice. 0 = off.",
+            )
+            v["goal"]["target_monthly_return"] = goal or None
+            _goal(c)
         return st.form_submit_button("Save", icon=":material/check:")
 
 
@@ -363,7 +428,6 @@ def _form(c: AppConfig) -> tuple[dict, str, bool]:
     v = c.model_dump()
     with st.form("settings", border=False):
         main = _main_inputs(c, v)
-        _goal(c)
         rest = _set_once(c, v)
     return v, v.pop("_note", ""), main or rest
 
@@ -445,67 +509,13 @@ def _retrain_pending(history: list[dict]) -> bool:
     return False
 
 
-def _explore(c: AppConfig) -> None:
-    ui.section("Signal status and the bar")
-    with st.container(border=True):
-        gate_rows = _gate_rows()
-        if gate_rows:
-            pills = " ".join(
-                ui.pill(
-                    f"Signal {r['signal']} {r['status']}",
-                    "green" if r["status"] == "LIVE" else "grey",
-                )
-                for r in gate_rows
-            )
-            st.markdown(pills, unsafe_allow_html=True)
-            for r in gate_rows:
-                ui.muted(f"{r['signal']}: {r['reason']}")
-        bar = st.slider(
-            "Explore a certainty bar",
-            0.10,
-            0.95,
-            float(c.signals.certainty_bar),
-            0.05,
-            format="%.2f",
-        )
-        rows = []
-        for s in ("A", "C"):
-            r = precision_at_bar(lake(), c, s, bar)
-            if r:
-                rows.append(
-                    {
-                        "Signal": s,
-                        "Signals at this bar": r["signals"],
-                        "Correct": r["hits"],
-                        "Precision": r["precision"],
-                        "Lower bound": r["wilson_lb"],
-                        "Weeks with a signal": r["weeks_with_signal"],
-                    }
-                )
-        if rows:
-            st.dataframe(
-                pl.DataFrame(rows),
-                hide_index=True,
-                width="stretch",
-                column_config={
-                    k: st.column_config.NumberColumn(format="percent")
-                    for k in ("Precision", "Lower bound")
-                },
-            )
-        ui.muted(
-            "From walk-forward predictions since 2018 (out of sample). Lowering the bar shows "
-            "more signals and more wrong ones."
-        )
-
-
 def _goal(c: AppConfig) -> None:
     g = c.goal.target_monthly_return
     if g is None:
         return
     f = feasibility(lake(), g)
     tone = {"Realistic": "green", "Stretch": "amber", "Unrealistic": "red"}[f.band]
-    ui.section("Goal feasibility")
-    with st.container(border=True):
+    with st.container():
         prob = f"{f.probability:.0%}" if f.probability is not None else "unknown"
         st.markdown(
             f'<div class="sa-row"><div><span class="sa-sym">{g:+.2%} a month</span>&nbsp;&nbsp;'
@@ -529,7 +539,7 @@ def render() -> None:
     when = history[0]["created_at"].astimezone() if history else None
     ui.header(
         "Settings",
-        "Change your inputs, then save: this week's plan updates at once. "
+        "Change your inputs and save: the advice updates straight away. "
         f"Version {version}" + (f" · saved {when:%d %b, %H:%M}" if when else ""),
     )
 
@@ -567,10 +577,8 @@ def render() -> None:
         st.session_state["settings_result"] = (True, lines)
         st.rerun()
 
-    _explore(current)
-
-    ui.section("Change history")
-    with st.container(border=True):
+    st.markdown('<div style="height:1.5rem"></div>', unsafe_allow_html=True)
+    with st.expander("Change history"):
         for h in history[:10]:
             keys = ", ".join(LABELS.get(k, k) for k in (h["changed"] or {})) or "initial values"
             st.markdown(
@@ -595,15 +603,7 @@ def render() -> None:
                 st.session_state["settings_result"] = (True, lines)
             st.rerun()
 
-    ui.section("Schedule (on this Mac)")
-    ui.muted(
-        "Daily Mon-Thu 19:30 · weekly plan Fri 20:00 · monthly retrain on the first Saturday. "
-        "Change with `uv run stockapp schedule`."
-    )
-    ui.muted(
-        f"Charges and tax rates came from the PRD (checked 2 Oct 2026); confirm against a "
-        f"contract note. A ₹3,500 round trip costs about {inr(23)} at these rates."
-    )
+    ui.muted("The app updates itself on this Mac: daily Mon-Thu 19:30, weekly advice Friday 20:00.")
 
 
 def _gate_rows() -> list[dict]:

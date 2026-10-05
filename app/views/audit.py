@@ -1,5 +1,6 @@
-"""Monthly audit: what the app showed vs what happened, over a chosen period (last 4 weeks by
-default). The verdict comes first; details follow. Lock a review to freeze it, or export it."""
+"""Track record: did the app's advice work? A plain verdict and four numbers for the chosen period
+(last 4 weeks by default); the full monthly audit (scorecards, misses, calibration, health,
+proposals, lock and export) is folded away below."""
 
 from __future__ import annotations
 
@@ -32,41 +33,50 @@ def render() -> None:
     else:
         start = end - timedelta(days=PERIODS.get(choice or "4 weeks", 28))
     with head:
-        ui.header("Monthly audit", f"{start:%d %b %Y} to {end:%d %b %Y}")
+        ui.header("Track record", f"Did the advice work? {start:%d %b %Y} to {end:%d %b %Y}")
 
     with connect() as conn:
         money = money_for_period(conn, lake(), cfg(), start, end)
         audit = build_audit(conn, lake(), cfg(), start, end, money)
 
-    ui.hero(audit.verdict, f"{audit.plans} weekly plan(s) in this period", "")
+    cards = list(audit.scorecards)
+    issued = sum(c.issued for c in cards)
+    if issued:
+        ui.hero(audit.verdict, f"From {audit.plans} weekly plan(s) in this period.")
+    else:
+        ui.hero(
+            "No buy or drop advice in this period",
+            "The predictions weren't proven 90% accurate yet, so the app stayed quiet rather "
+            "than guess. Rule-based sells still applied.",
+        )
+    matured = sum(c.matured for c in cards)
+    correct = sum(c.correct for c in cards)
+    ui.kpis(
+        [
+            ("Advice given", str(issued), f"{matured} with a known result", "grey"),
+            (
+                "Advice that worked",
+                f"{correct / matured:.0%}" if matured else "—",
+                f"{correct} of {matured}" if matured else "results take a week",
+                "grey",
+            ),
+            (
+                "Your return",
+                _pct(money.get("twr")),
+                "after fees",
+                ui.tone_for(money.get("twr")),
+            ),
+            ("Nifty 50, same money", _pct(money.get("benchmark")), "for comparison", "grey"),
+        ]
+    )
+
+    with st.expander("Full report"):
+        _details(audit, money, start, end)
+
+
+def _details(audit, money, start, end) -> None:
     for n in audit.notes:
         st.info(n)
-
-    cards = {c.signal: c for c in audit.scorecards}
-    items = []
-    for s in ("A", "C"):
-        c = cards[s]
-        value = f"{c.precision:.0%}" if c.precision is not None else "—"
-        items.append(
-            (
-                f"Signal {s} precision",
-                value,
-                f"{c.correct}/{c.matured} matured · claim {c.claim:.0%}",
-                "grey",
-            )
-        )
-    items += [
-        (
-            "Portfolio return",
-            _pct(money.get("twr")),
-            "time-weighted",
-            ui.tone_for(money.get("twr")),
-        ),
-        ("Nifty 50, same flows", _pct(money.get("benchmark")), None, "grey"),
-        ("Worst drawdown", _pct(money.get("max_drawdown")), None, "grey"),
-    ]
-    ui.kpis(items)
-
     ui.section("Signal scorecard")
     st.dataframe(
         pl.DataFrame(

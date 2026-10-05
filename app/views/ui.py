@@ -64,6 +64,18 @@ button[kind="primary"] {{ font-weight: 600; }}
 .st-key-sa_quiet [data-testid="stExpander"] summary p,
 .st-key-sa_quiet label p {{ color: {MUTED}; font-weight: 500; }}
 .st-key-sa_quiet input {{ color: {MUTED}; }}
+.sa-line {{ color: {INK}; font-size: .88rem; margin-top: .3rem; }}
+.sa-colhead {{ display:flex; align-items:center; gap:.5rem; font-size: 1.25rem; font-weight: 700;
+               color: {INK}; margin-top: .6rem; }}
+.sa-colhint {{ color: {MUTED}; font-size: .84rem; margin: .1rem 0 .7rem; }}
+.sa-watchhead {{ color: {MUTED}; font-size: .78rem; font-weight: 600; text-transform: uppercase;
+                 letter-spacing: .04em; margin: 1.1rem 0 .4rem; }}
+[class*="st-key-watch_"] {{ background: {SOFT}; border-radius: .75rem; padding: .65rem .85rem;
+                            opacity: .8; }}
+[class*="st-key-watch_"] .sa-sym {{ color: {MUTED}; }}
+.sa-holdrow {{ display:flex; justify-content:space-between; align-items:center; gap:.6rem;
+               padding: .55rem 0; border-bottom: 1px solid {LINE}; }}
+.sa-holdrow:last-child {{ border-bottom: 0; }}
 </style>
 """
 

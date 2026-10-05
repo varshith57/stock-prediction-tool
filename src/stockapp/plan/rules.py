@@ -38,6 +38,7 @@ class HoldingState:
     sessions_held: int | None  # None if the buy date is unknown
     opened_by_signal_a: bool = False
     net_profit_if_sold: float | None = None  # after charges and indicative tax
+    quantity: float | None = None
 
 
 def exit_rules(h: HoldingState, cfg: AppConfig) -> list[RuleHit]:

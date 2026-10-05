@@ -97,6 +97,12 @@ Neon later) for app state, LightGBM, scikit-learn, Streamlit, pytest, ruff, GitH
 - Local only: `.streamlit/config.toml` binds 127.0.0.1, hides the Deploy toolbar and sets the
   theme. Don't deploy anywhere unless the user explicitly asks.
 - Shared look in `app/views/ui.py` (header, hero, kpis, pill, section); use it for new screens.
+- Product direction (user, 2026-10-05): clear signals, no noise. Home = three buckets Buy | Hold |
+  Sell that together hold the whole portfolio; sells most urgent first, holds riskiest first.
+  "Act now" = saved plan only (validated 90%+ signals, rule exits). The confidence slider only
+  reveals the saved watch queue (`watch_buys`, holds' `p_c`) labelled "watch, don't act". Plain
+  English everywhere (no finance jargon); non-essential detail goes in expanders. Portfolio
+  changes rebuild the plan (`portfolio._refresh_plan`). Monthly audit is shown as "Track record".
 - Settings are edited in the app and versioned (`settings_store`: save/diff/impact/restore).
   On save, `impact()` decides: plan keys rebuild this week's plan (`save_plan` replaces the week's
   plan and archives the old one in `weekly_plan_revisions`, keeping logged actions); gate keys
