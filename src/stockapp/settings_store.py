@@ -22,6 +22,7 @@ import psycopg
 from stockapp.config import AppConfig, file_config
 
 RETRAIN_KEYS = (
+    "signals.model",
     "signals.gain_threshold",
     "signals.crash_threshold",
     "signals.window_trading_days",

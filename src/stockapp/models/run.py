@@ -39,7 +39,7 @@ from stockapp.models.walkforward import (
     PARAMS,
     add_months,
     fit_calibrator,
-    fit_classifier,
+    fit_model,
 )
 
 SIGNALS = {"A": "label_a", "C": "label_c"}
@@ -67,7 +67,10 @@ def run_backtests(lake: Lake, cfg: AppConfig, today: date) -> BacktestRun:
     gate_cfg = cfg.signals.gate
     backtests, gates, sections = {}, {}, []
     for signal, label in SIGNALS.items():
-        bt = run_backtest(samples, FEATURE_COLUMNS, label, FIRST_TEST, with_quantile=signal == "A")
+        bt = run_backtest(
+            samples, FEATURE_COLUMNS, label, FIRST_TEST, with_quantile=signal == "A",
+            kind=cfg.signals.model,
+        )  # fmt: skip
         backtests[signal] = bt
         cap = cfg.signals.max_opportunities if signal == "A" else None
         rank_by = "expected_gain" if signal == "A" else "p"
@@ -136,7 +139,7 @@ def train_and_score(lake: Lake, cfg: AppConfig, today: date) -> pl.DataFrame:
         calib_start = add_months(date(last.year, 3 * ((last.month - 1) // 3) + 1, 1), -9)
         train = lab.filter(pl.col("trade_date") < calib_start - timedelta(days=EMBARGO_DAYS))
         calib = lab.filter(pl.col("trade_date") >= calib_start)
-        model = fit_classifier(train, FEATURE_COLUMNS, label)
+        model = fit_model(train, calib, FEATURE_COLUMNS, label, cfg.signals.model)
         iso = fit_calibrator(model, calib, FEATURE_COLUMNS, label)
         out = out.with_columns(
             pl.Series(f"p_{signal.lower()}", iso.predict(model.predict_proba(x_latest)[:, 1]))
@@ -148,6 +151,7 @@ def train_and_score(lake: Lake, cfg: AppConfig, today: date) -> pl.DataFrame:
             "feature_version": FEATURE_VERSION,
             "train_end": str(train["trade_date"].max()),
             "calib": [str(calib_start), str(last)],
+            "model": cfg.signals.model,
             "params": PARAMS,
             "trained_at": datetime.now(UTC).isoformat(),
             "pipeline_version": pipeline_version(),

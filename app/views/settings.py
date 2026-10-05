@@ -32,6 +32,7 @@ LABELS = {
     "signals.window_trading_days": "Within (market days)",
     "signals.certainty_bar": "Accuracy needed to act",
     "signals.max_opportunities": "Buy ideas a week",
+    "signals.model": "Prediction model",
     "signals.gate.min_signals": "Past calls needed as proof",
     "signals.gate.min_wilson_lower_bound": "Worst-case accuracy needed",
     "risk.max_stock_weight": "Most in one stock",
@@ -239,6 +240,18 @@ def _set_once(c: AppConfig, v: dict) -> bool:
                 min_value=10,
                 step=5,
                 help="How many past calls the test needs before its accuracy counts.",
+            )
+            models = {"lightgbm": "One model (LightGBM)", "ensemble": "Group of 5 models"}
+            v["signals"]["model"] = st.radio(
+                "Prediction model",
+                list(models),
+                index=list(models).index(c.signals.model),
+                format_func=models.get,
+                horizontal=True,
+                help="A group averages 5 different models (LightGBM, XGBoost, CatBoost, a "
+                "bootstrapped forest and a linear model), so no single model's blind spots "
+                "decide. Compare them first with `uv run stockapp models compare`. Changing "
+                "it means retraining.",
             )
 
         trail_now = c.risk.trailing_stop_atr_multiple

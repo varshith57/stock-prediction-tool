@@ -100,8 +100,18 @@ def fit_calibrator(model: lgb.LGBMClassifier, calib: pl.DataFrame, features: lis
     return iso
 
 
+def fit_model(train: pl.DataFrame, calib: pl.DataFrame, features: list[str], label: str,
+              kind: str = "lightgbm"):  # fmt: skip
+    """The signal model: LightGBM alone, or the group of models (``models.ensemble``)."""
+    if kind == "ensemble":
+        from stockapp.models.ensemble import fit_ensemble
+
+        return fit_ensemble(train, calib, features, label)
+    return fit_classifier(train, features, label)
+
+
 def run_fold(
-    samples: pl.DataFrame, fold: Fold, features: list[str], label: str
+    samples: pl.DataFrame, fold: Fold, features: list[str], label: str, kind: str = "lightgbm"
 ) -> FoldResult | None:
     s = samples.filter(pl.col(label).is_not_null())
     train = s.filter(pl.col("trade_date") < fold.train_end)
@@ -113,12 +123,17 @@ def run_fold(
     )
     if min(train.height, calib.height, test.height) == 0 or train[label].sum() < 50:
         return None
-    model = fit_classifier(train, features, label)
+    model = fit_model(train, calib, features, label, kind)
     iso = fit_calibrator(model, calib, features, label)
-    raw = model.predict_proba(_matrix(test, features))[:, 1]
+    x_test = _matrix(test, features)
+    raw = model.predict_proba(x_test)[:, 1]
     preds = test.select(
         "company_id", "symbol", "trade_date", pl.col(label).alias("label")
     ).with_columns(pl.Series("p_raw", raw), pl.Series("p", iso.predict(raw)))
+    if kind == "ensemble":  # each member's own calibrated probability, for the comparison report
+        preds = preds.with_columns(
+            pl.Series(f"m_{name}", p) for name, p in model.member_probabilities(x_test).items()
+        )
     imp = dict(zip(features, model.booster_.feature_importance("gain").tolist(), strict=True))
     return FoldResult(fold, preds, train.height, calib.height, imp)
 

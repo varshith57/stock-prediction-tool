@@ -334,6 +334,21 @@ def _models_backtest(_: argparse.Namespace) -> int:
     return 0
 
 
+def _models_compare(_: argparse.Namespace) -> int:
+    from stockapp.lake import Lake
+    from stockapp.models.compare import compare_models
+
+    run = compare_models(Lake.from_settings(), get_app_config(), date.today())
+    for r in run.table.iter_rows(named=True):
+        best = "-" if r["best_precision"] is None else f"{r['best_precision']:.1%}"
+        print(
+            f"{r['signal']}  {r['model']:<14} AUC {r['auc']:.3f}  top-5 {r['top5_precision']:.1%}"
+            f"  best {best} ({r['signals']} signals)  {r['gate']}"
+        )
+    print(f"report: {run.report_path}")
+    return 0
+
+
 def _models_train(_: argparse.Namespace) -> int:
     from stockapp.lake import Lake
     from stockapp.models.run import train_and_score
@@ -574,6 +589,9 @@ def main(argv: list[str] | None = None) -> int:
     mod_sub.add_parser(
         "backtest", help="walk-forward A and C, baselines, gate, report"
     ).set_defaults(func=_models_backtest)
+    mod_sub.add_parser(
+        "compare", help="group of 5 models vs each member, same walk-forward test (no changes)"
+    ).set_defaults(func=_models_compare)
     mod_sub.add_parser("train", help="fit final models and score the latest week").set_defaults(
         func=_models_train
     )

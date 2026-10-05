@@ -18,6 +18,7 @@ signals:
     min_wilson_lower_bound: 0.80
     live_recheck_last_n: 20
     live_min_precision: 0.80
+  model: lightgbm                  # or ensemble: 5 models averaged (stockapp models compare)
 
 risk:
   max_stock_weight: 0.15

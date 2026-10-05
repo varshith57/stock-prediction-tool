@@ -66,6 +66,7 @@ class SignalsConfig(_Strict):
     certainty_bar: float = Field(gt=0, lt=1)
     max_opportunities: int = Field(ge=0)
     gate: GateConfig
+    model: Literal["lightgbm", "ensemble"] = "lightgbm"  # ensemble = models.ensemble (5 models)
 
 
 class RiskConfig(_Strict):

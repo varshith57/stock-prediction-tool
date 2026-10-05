@@ -123,6 +123,10 @@ Neon later) for app state, LightGBM, scikit-learn, Streamlit, pytest, ruff, GitH
 - `uv run stockapp models backtest` (~7 min): walk-forward A/C + baselines -> gold
   `oos_predictions`, `signal_gate`; report in data/reports/. `uv run stockapp models train`:
   final models in data/models/ and gold `latest_scores` for the newest week.
+- `signals.model`: `lightgbm` (default) or `ensemble` (`models/ensemble.py`: LightGBM, XGBoost,
+  CatBoost, bootstrapped extra trees, logistic; each isotonic-calibrated, averaged, calibrated
+  again). `uv run stockapp models compare` judges the group and every member on the same
+  walk-forward (report only, no gold writes). Switch in Settings, then retrain.
 - The gate (`models/gate.py`) uses out-of-sample predictions only, counts only what would be shown
   (A: 5/week by expected gain), and never lowers the bar. Both signals are OFF as of 2026-10-04;
   see docs/MODEL_CARD.md for numbers and known limits (overconfident tails).
