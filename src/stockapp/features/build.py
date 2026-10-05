@@ -21,7 +21,14 @@ import polars as pl
 
 GROUP = ["company_id", "segment"]
 WINDOW = 5  # trading days, from config.signals.window_trading_days
-MAX_LABEL_SPAN_DAYS = 14
+MAX_LABEL_SPAN_DAYS = 14  # for the 5-session window; longer windows scale it (label_span_days)
+
+
+def label_span_days(window: int) -> int:
+    """Most calendar days a label window may span before it counts as stretched by a halt. Also
+    the embargo between walk-forward blocks: a label can't see further ahead than this."""
+    return max(MAX_LABEL_SPAN_DAYS, -(-window * MAX_LABEL_SPAN_DAYS // WINDOW))
+
 
 # name -> description (the catalogue; families in FAMILIES)
 FEATURES: dict[str, str] = {}
@@ -214,7 +221,7 @@ def compute_labels(
     entry = pl.col("adj_open").shift(-1).over(GROUP)
     end_date = pl.col("trade_date").shift(-window).over(GROUP)
     ok = end_date.is_not_null() & ((end_date - pl.col("trade_date")).dt.total_days()
-                                   <= MAX_LABEL_SPAN_DAYS) & entry.is_not_null()  # fmt: skip
+                                   <= label_span_days(window)) & entry.is_not_null()  # fmt: skip
     fut_max, fut_min = pl.max_horizontal(future), pl.min_horizontal(future)
     return p.select(
         "company_id", "segment", "trade_date",

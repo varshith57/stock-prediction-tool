@@ -76,3 +76,30 @@ def test_fold_carries_member_scores_and_compare_table():
     table = score_table(r.predictions, "C", load_app_config(local_path=None))
     assert table.height == len(MEMBERS) + 1 and table["model"][0] == "group (all 5)"
     assert set(table["gate"]) <= {"LIVE", "OFF"}
+
+
+def test_longer_windows_get_a_longer_label_span_and_embargo():
+    from stockapp.features.build import compute_labels, label_span_days
+
+    assert label_span_days(5) == 14  # today's one-week question is unchanged
+    assert label_span_days(20) == 56
+    f = make_folds(date(2018, 1, 1), date(2018, 3, 31), embargo_days=56)[0]
+    assert (f.test_start - f.calib_end).days == 56 and (f.calib_start - f.train_end).days == 56
+
+    days = pl.date_range(date(2020, 1, 1), date(2020, 3, 31), eager=True)
+    days = [d for d in days if d.weekday() < 5]
+    price = [100 * 1.004**i for i in range(len(days))]  # +0.4% a day
+    panel = pl.DataFrame(
+        {
+            "company_id": "X",
+            "segment": 0,
+            "trade_date": days,
+            "adj_open": price,
+            "adj_close": price,
+        }
+    )
+    week = compute_labels(panel, 0.05, 0.05, 5)
+    month = compute_labels(panel, 0.05, 0.05, 20)
+    assert not week["label_a"][0]  # +5% needs about 12 sessions: not within a week
+    assert month["label_a"][0]  # but within a month
+    assert month["label_a"].null_count() == 20  # the last 20 days have no full window yet

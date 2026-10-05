@@ -16,8 +16,8 @@ import polars as pl
 from sklearn.metrics import roc_auc_score
 
 from stockapp.config import AppConfig
-from stockapp.features.build import FEATURE_COLUMNS
-from stockapp.features.pipeline import load_weekly_samples
+from stockapp.features.build import FEATURE_COLUMNS, WINDOW, compute_labels, label_span_days
+from stockapp.features.pipeline import blocked_samples, load_panel, load_weekly_samples
 from stockapp.lake import Lake
 from stockapp.models.backtest import _top_k_precision, run_backtest
 from stockapp.models.ensemble import MEMBERS
@@ -68,19 +68,70 @@ def score_table(preds: pl.DataFrame, signal: str, cfg: AppConfig) -> pl.DataFram
     return pl.DataFrame(rows)
 
 
-def compare_models(lake: Lake, cfg: AppConfig, today: date) -> Comparison:
-    samples = load_weekly_samples(lake)
+def horizon_samples(lake: Lake, gain: float, crash: float, window: int) -> pl.DataFrame:
+    """The saved weekly samples with labels rebuilt for another question (e.g. +5% within 20
+    sessions), in memory only. Same features and universe; ``blocked`` covers the longer window
+    so no label rests on prices with a BLOCK quality flag."""
+    base = load_weekly_samples(lake).drop("label_a", "label_c", "max_gain_5", "blocked")
+    labels = compute_labels(load_panel(lake), gain, crash, window)
+    s = base.join(labels, on=["company_id", "segment", "trade_date"], how="left")
+    blocked = blocked_samples(lake, s, label_span_days(window))
+    return s.join(blocked, on=["company_id", "trade_date"], how="left").with_columns(
+        pl.col("blocked").fill_null(False)
+    )
+
+
+def compare_models(
+    lake: Lake,
+    cfg: AppConfig,
+    today: date,
+    gain: float | None = None,
+    crash: float | None = None,
+    window: int | None = None,
+) -> Comparison:
+    """Without arguments: the app's own question (signals as configured). With ``gain``/
+    ``crash``/``window``: the same test on another question, labels rebuilt in memory."""
+    custom = any(v is not None for v in (gain, crash, window))
+    gain = cfg.signals.gain_threshold if gain is None else gain
+    crash = gain if custom and crash is None else (crash or cfg.signals.crash_threshold)
+    window = cfg.signals.window_trading_days if window is None else window
+    samples = horizon_samples(lake, gain, crash, window) if custom else load_weekly_samples(lake)
+    embargo = label_span_days(window)
     tables = []
     for signal, label in SIGNALS.items():
         a = signal == "A"
-        bt = run_backtest(samples, FEATURE_COLUMNS, label, FIRST_TEST, a, kind="ensemble")
-        tables.append(score_table(bt.predictions, signal, cfg))
+        bt = run_backtest(
+            samples, FEATURE_COLUMNS, label, FIRST_TEST, a, kind="ensemble", embargo_days=embargo
+        )
+        base_rate = float(bt.predictions["label"].cast(pl.Float64).mean())
+        tables.append(
+            score_table(bt.predictions, signal, cfg).with_columns(
+                pl.lit(round(base_rate, 4)).alias("base_rate")
+            )
+        )
     table = pl.concat(tables)
     reports = lake.root.parent / "reports"
     reports.mkdir(parents=True, exist_ok=True)
-    path = reports / f"compare_models_{today.isoformat()}.md"
+    tag = f"_{gain:.0%}_{window}d".replace("%", "pct") if custom else ""
+    path = reports / f"compare_models_{today.isoformat()}{tag}.md"
+    question = (
+        f"Buy (A): +{gain:.0%} within {window} market days. Drop (C): -{crash:.0%} within "
+        f"{window} market days. Base rates: "
+        + ", ".join(
+            f"{r['signal']} {r['base_rate']:.1%}"
+            for r in table.unique("signal").iter_rows(named=True)
+        )
+        + "."
+    )
+    overlap = (
+        f" Weekly samples with a {window}-day window overlap, so neighbouring signals on the "
+        "same stock are not independent: treat the signal counts as optimistic."
+        if window > WINDOW
+        else ""
+    )
     lines = [
         f"# Group of models vs each model ({today})\n",
+        question + overlap + "\n",
         "Walk-forward, quarterly folds from 2018, every number out of sample. AUC: ranking "
         "quality (0.5 = coin flip). Top-5 precision: share of each week's 5 best-scored stocks "
         f"that hit. Best precision: the best accuracy any cutoff reached with "

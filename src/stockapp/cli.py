@@ -334,11 +334,13 @@ def _models_backtest(_: argparse.Namespace) -> int:
     return 0
 
 
-def _models_compare(_: argparse.Namespace) -> int:
+def _models_compare(args: argparse.Namespace) -> int:
     from stockapp.lake import Lake
     from stockapp.models.compare import compare_models
 
-    run = compare_models(Lake.from_settings(), get_app_config(), date.today())
+    run = compare_models(
+        Lake.from_settings(), get_app_config(), date.today(), args.gain, args.crash, args.window
+    )
     for r in run.table.iter_rows(named=True):
         best = "-" if r["best_precision"] is None else f"{r['best_precision']:.1%}"
         print(
@@ -589,9 +591,13 @@ def main(argv: list[str] | None = None) -> int:
     mod_sub.add_parser(
         "backtest", help="walk-forward A and C, baselines, gate, report"
     ).set_defaults(func=_models_backtest)
-    mod_sub.add_parser(
+    mc = mod_sub.add_parser(
         "compare", help="group of 5 models vs each member, same walk-forward test (no changes)"
-    ).set_defaults(func=_models_compare)
+    )
+    mc.add_argument("--gain", type=float, help="test another rise, e.g. 0.05 (labels in memory)")
+    mc.add_argument("--crash", type=float, help="drop to test (default: same as --gain)")
+    mc.add_argument("--window", type=int, help="market days for the move, e.g. 20")
+    mc.set_defaults(func=_models_compare)
     mod_sub.add_parser("train", help="fit final models and score the latest week").set_defaults(
         func=_models_train
     )

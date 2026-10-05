@@ -56,15 +56,16 @@ class Fold:
     calib_end: date  # exclusive (embargo applied)
 
 
-def make_folds(first_test: date, last_date: date, calib_quarters: int = 4) -> list[Fold]:
+def make_folds(first_test: date, last_date: date, calib_quarters: int = 4,
+               embargo_days: int = EMBARGO_DAYS) -> list[Fold]:  # fmt: skip
     folds, q = [], quarter_start(first_test)
     while q <= last_date:
         calib_start = add_months(q, -3 * calib_quarters)
         folds.append(
             Fold(
                 test_start=q, test_end=add_months(q, 3), calib_start=calib_start,
-                train_end=calib_start - timedelta(days=EMBARGO_DAYS),
-                calib_end=q - timedelta(days=EMBARGO_DAYS),
+                train_end=calib_start - timedelta(days=embargo_days),
+                calib_end=q - timedelta(days=embargo_days),
             )
         )  # fmt: skip
         q = add_months(q, 3)

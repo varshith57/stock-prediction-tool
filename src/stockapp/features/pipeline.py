@@ -104,18 +104,7 @@ def build_weekly_samples(lake: Lake, cfg: AppConfig, as_of: date) -> pl.DataFram
     )
     samples = add_cross_section(samples)
 
-    # blocked: any BLOCK flag overlapping [T, T + ~2 weeks] (the label window)
-    con = duckdb.connect()
-    con.register("s", samples.select("company_id", "trade_date"))
-    blocked = (
-        con.sql(
-            f"""SELECT DISTINCT s.company_id, s.trade_date FROM s JOIN ({flags_sql(lake)}) f
-            ON f.company_id = s.company_id AND f.severity = 'BLOCK'
-           AND f.from_date <= s.trade_date + INTERVAL 14 DAY AND f.to_date >= s.trade_date"""
-        )
-        .pl()
-        .with_columns(pl.lit(True).alias("blocked"))
-    )
+    blocked = blocked_samples(lake, samples, 14)
     samples = samples.join(blocked, on=["company_id", "trade_date"], how="left").with_columns(
         pl.col("blocked").fill_null(False),
         pl.lit(FEATURE_VERSION).alias("feature_version"),
@@ -132,6 +121,23 @@ def build_weekly_samples(lake: Lake, cfg: AppConfig, as_of: date) -> pl.DataFram
     ):
         lake.write_partition("gold", DATASET, "year", str(year), part.drop("_y"))
     return samples
+
+
+def blocked_samples(lake: Lake, samples: pl.DataFrame, days: int) -> pl.DataFrame:
+    """(company_id, trade_date, blocked=True) for samples with a BLOCK quality flag overlapping
+    [T, T + days]: the label window, so the label may rest on bad prices."""
+    con = duckdb.connect()
+    con.register("s", samples.select("company_id", "trade_date"))
+    return (
+        con.sql(
+            f"""SELECT DISTINCT s.company_id, s.trade_date FROM s JOIN ({flags_sql(lake)}) f
+            ON f.company_id = s.company_id AND f.severity = 'BLOCK'
+           AND f.from_date <= s.trade_date + INTERVAL {int(days)} DAY
+           AND f.to_date >= s.trade_date"""
+        )
+        .pl()
+        .with_columns(pl.lit(True).alias("blocked"))
+    )
 
 
 def load_weekly_samples(lake: Lake) -> pl.DataFrame:
