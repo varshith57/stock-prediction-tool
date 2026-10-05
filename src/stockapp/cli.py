@@ -353,9 +353,10 @@ def _models_compare(args: argparse.Namespace) -> int:
 
 def _models_money(_: argparse.Namespace) -> int:
     from stockapp.lake import Lake
-    from stockapp.models.money import run_money_backtest
+    from stockapp.models.money import evaluate_money_gate, run_money_backtest
 
-    run = run_money_backtest(Lake.from_settings(), get_app_config(), date.today())
+    lake, cfg = Lake.from_settings(), get_app_config()
+    run = run_money_backtest(lake, cfg, date.today())
     for r in run.table.iter_rows(named=True):
         x = "-" if r["xirr"] is None else f"{r['xirr']:+.1%}"
         print(
@@ -363,6 +364,8 @@ def _models_money(_: argparse.Namespace) -> int:
             f"in Rs {r['contributed']:>10,.0f}  XIRR {x:>7}  worst {r['max_drawdown']:+.1%}"
         )
     print(f"report: {run.report_path}")
+    gate = evaluate_money_gate(lake, cfg, date.today())
+    print(f"money test for buy ideas: {gate.status}: {gate.reason}")
     return 0
 
 
@@ -420,7 +423,7 @@ def _plan_build(args: argparse.Namespace) -> int:
             candidates=cands,
             holdings=states,
             holding_weights=weights,
-            gates=inputs.gates(lake),
+            gates=inputs.gates(lake, cfg),
             regime=inputs.regime(market, cfg),
             drawdown=dd,
             budget_available=budget,
@@ -499,6 +502,7 @@ def _retrain(_: argparse.Namespace) -> int:
     from stockapp.db import connect
     from stockapp.features.pipeline import build_weekly_samples
     from stockapp.lake import Lake
+    from stockapp.models.money import evaluate_money_gate
     from stockapp.models.run import run_backtests, train_and_score
 
     lake, cfg, today = Lake.from_settings(), get_app_config(), date.today()
@@ -510,6 +514,10 @@ def _retrain(_: argparse.Namespace) -> int:
             lambda: ", ".join(
                 f"{s} {g.status}" for s, g in run_backtests(lake, cfg, today).gates.items()
             ),
+        ),
+        (
+            "money test (beat the index after costs?)",
+            lambda: evaluate_money_gate(lake, cfg, today).status,
         ),
         ("final models", lambda: f"{train_and_score(lake, cfg, today).height} stocks scored"),
     ]

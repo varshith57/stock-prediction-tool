@@ -27,12 +27,14 @@ from stockapp.models.run import reevaluate_gate
 LABELS = {
     "budget.weekly_inr": "Weekly budget",
     "budget.min_position_inr": "Smallest buy",
+    "budget.satellite_share": "Share for stock ideas",
     "signals.gain_threshold": "Rise to look for",
     "signals.crash_threshold": "Drop to warn about",
     "signals.window_trading_days": "Within (market days)",
     "signals.certainty_bar": "Accuracy needed to act",
     "signals.max_opportunities": "Buy ideas a week",
     "signals.model": "Prediction model",
+    "signals.qualify": "When a buy idea counts",
     "signals.gate.min_signals": "Past calls needed as proof",
     "signals.gate.min_wilson_lower_bound": "Worst-case accuracy needed",
     "risk.max_stock_weight": "Most in one stock",
@@ -63,6 +65,7 @@ LABELS = {
 }
 # Stored as fractions, shown as percentages.
 PERCENT_KEYS = {
+    "budget.satellite_share",
     "signals.gain_threshold",
     "signals.crash_threshold",
     "signals.certainty_bar",
@@ -151,6 +154,15 @@ def _main_inputs(c: AppConfig, v: dict) -> bool:
             )
             _moves("The most stocks you'll be told to buy in one week (5 at most).")
         with b:
+            v["budget"]["satellite_share"] = _pct(
+                "Share for stock ideas",
+                c.budget.satellite_share,
+                min_value=1.0,
+                max_value=100.0,
+                step=5.0,
+            )
+            _moves("The rest of each week's money goes to an index fund (the safe core).")
+        with d:
             v["risk"]["investment_review_loss"] = _pct(
                 "Review an investment when down",
                 c.risk.investment_review_loss,
@@ -158,7 +170,8 @@ def _main_inputs(c: AppConfig, v: dict) -> bool:
                 max_value=90.0,
             )
             _moves("Your long-term stocks are never auto-sold. Past this loss you get a nudge.")
-        with d:
+        a, b, d = st.columns(3)
+        with a:
             st.markdown('<div style="height:1.9rem"></div>', unsafe_allow_html=True)
             v["alerts"]["telegram_enabled"] = st.toggle(
                 "Phone alerts", value=c.alerts.telegram_enabled
@@ -262,6 +275,21 @@ def _set_once(c: AppConfig, v: dict) -> bool:
                 "bootstrapped forest and a linear model), so no single model's blind spots "
                 "decide. Compare them first with `uv run stockapp models compare`. Changing "
                 "it means retraining.",
+            )
+            rules = {
+                "money": "Proven to beat an index fund after costs",
+                "accuracy": "90% accurate",
+            }
+            v["signals"]["qualify"] = st.radio(
+                "When a buy idea counts",
+                list(rules),
+                index=list(rules).index(c.signals.qualify),
+                format_func=rules.get,
+                horizontal=True,
+                help="Proven to beat an index fund: in a replay of 2018 to today with every fee "
+                "and tax, following the ideas made more than the same money in the Nifty 500, "
+                "also with pessimistic fill prices, in most years, without a much deeper worst "
+                "fall. 90% accurate: similar past calls hit their target 9 times in 10.",
             )
 
         trail_now = c.risk.trailing_stop_atr_multiple
@@ -475,6 +503,15 @@ def _apply(changes: dict, new: AppConfig) -> list[str]:
         gates = reevaluate_gate(lake(), new, today)
         done.append(
             "Signal status re-checked: " + ", ".join(f"{s} {g.status}" for s, g in gates.items())
+        )
+    money_keys = ("signals.qualify", "signals.money.", "signals.max_opportunities")
+    if new.signals.qualify == "money" and any(k.startswith(money_keys) for k in changes):
+        from stockapp.models.money import evaluate_money_gate
+
+        with st.spinner("Re-running the money test (about a minute)..."):
+            g = evaluate_money_gate(lake(), new, today)
+        done.append(
+            f"Money test for buy ideas re-run: {'proven' if g.status == 'LIVE' else 'not proven'}"
         )
     if "plan" in effects and lake().has_table("gold", "latest_scores"):
         from stockapp.pipeline import build_weekly_plan

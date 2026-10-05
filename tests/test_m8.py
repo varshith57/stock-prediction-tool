@@ -26,7 +26,11 @@ from stockapp.plan.store import actions_for, latest_plan, log_action, save_plan
 from stockapp.portfolio.history import value_history
 from stockapp.portfolio.ledger import QuantityEvent, Txn
 
-CFG = load_app_config(local_path=None)
+_DEFAULTS = load_app_config(local_path=None)
+# most tests size buys from the whole budget (satellite 100%); the split has its own test
+CFG = _DEFAULTS.model_copy(
+    update={"budget": _DEFAULTS.budget.model_copy(update={"satellite_share": 1.0})}
+)
 LIVE = {"A": SignalGate("LIVE", 0.9, "ok"), "C": SignalGate("LIVE", 0.9, "ok")}
 OFF = {"A": SignalGate("OFF", None, "best 43%"), "C": SignalGate("OFF", None, "best 65%")}
 CALM = Regime(False, "normal")
@@ -340,7 +344,7 @@ def test_investments_are_never_auto_sold_only_flagged_for_review():
     assert all(i.review for i in build_plan_with(stricter, cands, holdings[:2]).holds)
 
 
-def build_plan_with(cfg, cands, holdings):
+def build_plan_with(cfg, cands, holdings, budget=10_000.0):
     return build_plan(
         cfg=cfg,
         signal_date=date(2026, 10, 2),
@@ -352,7 +356,7 @@ def build_plan_with(cfg, cands, holdings):
         gates=LIVE,
         regime=CALM,
         drawdown=NO_DD,
-        budget_available=10_000.0,
+        budget_available=budget,
     )
 
 
@@ -366,3 +370,22 @@ def test_holding_styles_store(db: psycopg.Connection):
     assert holding_styles(db) == {"ITC": "investment", "INFY": "trade"}
     with pytest.raises(ValueError):
         set_holding_style(db, "ITC", "gamble")
+
+
+def test_core_and_satellite_split_and_ranking_after_costs():
+    from stockapp.plan.engine import net_edge
+
+    cfg = _DEFAULTS  # 20% of new money to stock ideas, 80% to the index fund
+    cands = [
+        cand("BIG", p_a=0.95, gain=0.12, close=100.0),
+        cand("TINY", p_a=0.99, gain=0.002, close=100.0),  # can't cover its costs
+        cand("MID", p_a=0.95, gain=0.08, close=100.0),
+    ]
+    p = build_plan_with(cfg, cands, [], budget=100_000.0)  # satellite 20,000; cap 15,000
+    assert p.core_inr == pytest.approx(cfg.budget.weekly_inr * 0.8)
+    assert [o.symbol for o in p.opportunities] == ["BIG", "MID"]  # TINY dropped
+    spent = sum(o.quantity * o.guide_price for o in p.opportunities)
+    assert spent <= 100_000 * 0.2  # only the satellite share is spent on stocks
+    assert p.opportunities[0].expected_gain == pytest.approx(net_edge(0.12, 15_000.0, cfg))
+    assert net_edge(0.12, 3000.0, cfg) < 0.12 and net_edge(0.002, 3000.0, cfg) < 0
+    assert net_edge(0.10, 3000.0, cfg) < net_edge(0.10, 30_000.0, cfg)  # flat fees hurt small

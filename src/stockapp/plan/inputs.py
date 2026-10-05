@@ -55,15 +55,27 @@ def _latest_model(models_dir: Path, signal: str) -> dict | None:
         return pickle.load(f)
 
 
-def gates(lake: Lake) -> dict[str, SignalGate]:
-    if not lake.has_table("gold", "signal_gate"):
-        return {}
-    g = lake.scan("gold", "signal_gate").collect()
-    g = g.filter(pl.col("built") == pl.col("built").max())
-    return {
-        r["signal"]: SignalGate(r["status"], r["cutoff"], r["reason"])
-        for r in g.iter_rows(named=True)
-    }
+def gates(lake: Lake, cfg: AppConfig | None = None) -> dict[str, SignalGate]:
+    """LIVE/OFF per signal. With ``signals.qualify = money`` (the default), buy ideas (A) qualify
+    by the money test (``models.money``: beat the index after costs) instead of 90% accuracy."""
+    out: dict[str, SignalGate] = {}
+    if lake.has_table("gold", "signal_gate"):
+        g = lake.scan("gold", "signal_gate").collect()
+        g = g.filter(pl.col("built") == pl.col("built").max())
+        out = {
+            r["signal"]: SignalGate(r["status"], r["cutoff"], r["reason"])
+            for r in g.iter_rows(named=True)
+        }
+    if cfg is not None and cfg.signals.qualify == "money":
+        from stockapp.models.money import latest_money_gate
+
+        m = latest_money_gate(lake)
+        out["A"] = (
+            SignalGate(m["status"], m["cutoff"], m["reason"])
+            if m
+            else SignalGate("OFF", None, "not tested for money yet: run stockapp models money")
+        )
+    return out
 
 
 def candidates(lake: Lake, signal_date: date) -> tuple[list[Candidate], dict, str | None]:

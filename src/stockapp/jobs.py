@@ -135,6 +135,11 @@ def monthly_steps(conn: psycopg.Connection, lake: Lake, cfg: AppConfig, today: d
         run = run_backtests(lake, cfg, today)
         return "gate: " + ", ".join(f"{s} {g.status}" for s, g in run.gates.items())
 
+    def money() -> str:
+        from stockapp.models.money import evaluate_money_gate
+
+        return f"money test: {evaluate_money_gate(lake, cfg, today).status}"
+
     def retrain() -> str:
         s = train_and_score(lake, cfg, today)
         return f"retrained: model {s['model_version'][0]}"
@@ -149,4 +154,9 @@ def monthly_steps(conn: psycopg.Connection, lake: Lake, cfg: AppConfig, today: d
         )
         return f"audit notice: {status}"
 
-    return [("revalidate", revalidate), ("retrain", retrain), ("announce", announce)]
+    return [
+        ("revalidate", revalidate),
+        ("money test", money),
+        ("retrain", retrain),
+        ("announce", announce),
+    ]

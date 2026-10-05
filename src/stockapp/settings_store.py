@@ -28,7 +28,13 @@ RETRAIN_KEYS = (
     "signals.window_trading_days",
     "universe.size",
 )
-GATE_KEYS = ("signals.certainty_bar", "signals.gate.", "signals.max_opportunities")
+GATE_KEYS = (
+    "signals.certainty_bar",
+    "signals.gate.",
+    "signals.max_opportunities",
+    "signals.qualify",
+    "signals.money.",
+)
 
 
 def _flatten(d: dict, prefix: str = "") -> dict[str, Any]:

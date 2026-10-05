@@ -132,6 +132,14 @@ Neon later) for app state, LightGBM, scikit-learn, Streamlit, pytest, ruff, GitH
   for several cutoffs vs the same rupees in Nifty 50/500; report in data/reports/. Result
   2026-10-05: no robust edge (beats Nifty 500 only with 15 bps slippage and spare cash in the
   index; at 50 bps it lags; worst falls -42% to -59% vs -38%).
+- Buy ideas qualify by money by default (`signals.qualify: money`, user's call 2026-10-05):
+  `models.money.evaluate_money_gate` (monthly job, retrain, `models money`) replays the picks per
+  cutoff with spare cash in the Nifty 500 and passes only if they beat the index at the
+  configured and a 50 bps slippage, in 60%+ of years, with a worst fall at most 10 points
+  deeper, and a neighbouring cutoff also beats it (gold `money_gate`). `qualify: accuracy` = the
+  90% gate below. Ideas are ranked by `engine.net_edge` (expected gain after round-trip costs);
+  only `budget.satellite_share` of new money funds them, the rest is the week's index-fund
+  amount (`plan.core_inr`).
 - The gate (`models/gate.py`) uses out-of-sample predictions only, counts only what would be shown
   (A: 5/week by expected gain), and never lowers the bar. Both signals are OFF as of 2026-10-04;
   see docs/MODEL_CARD.md for numbers and known limits (overconfident tails).

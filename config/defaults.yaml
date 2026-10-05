@@ -6,6 +6,7 @@ version: 1
 budget:
   weekly_inr: 2000          # accumulates week to week (AM9); override in local.yaml
   min_position_inr: 3000
+  satellite_share: 0.20     # share of new money for stock ideas; the rest goes to an index fund
 
 signals:
   gain_threshold: 0.10      # signal A
@@ -19,6 +20,11 @@ signals:
     live_recheck_last_n: 20
     live_min_precision: 0.80
   model: lightgbm                  # or ensemble: 5 models averaged (stockapp models compare)
+  qualify: money                   # buy ideas must beat the index after costs; or: accuracy (90%)
+  money:
+    stress_slippage_bps: 50        # must also beat the index at this pessimistic slippage
+    min_share_of_years: 0.6        # ... in at least this share of calendar years
+    max_extra_drawdown: 0.10       # ... with a worst fall at most this much deeper
 
 risk:
   max_stock_weight: 0.15

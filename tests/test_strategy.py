@@ -134,3 +134,29 @@ def test_drawdown_pause_lifts_once_the_old_peak_leaves_the_window():
     locked = simulate(_signals("X", s), px, s, replace(p, drawdown_lookback=10_000), COSTS)
     assert len(locked.trades) == 1  # the first loss pauses buying for good
     assert len(rolling.trades) > 1  # the pause lifts after 10 market days
+
+
+def test_money_gate_needs_a_robust_win_over_the_index():
+    from stockapp.models.money import judge_cutoffs
+
+    cfg = load_app_config(local_path=None)
+    years = {2019: 0.10, 2020: 0.10, 2021: 0.10, 2022: 0.10, 2023: 0.10}
+    index = {
+        "xirr": 0.10, "max_drawdown": -0.38, "years": years,
+        "tested_from": date(2019, 1, 1), "tested_to": date(2023, 12, 31),
+    }  # fmt: skip
+
+    def r(x, stress, dd=-0.40, yr=0.15):
+        return {"xirr": x, "xirr_stress": stress, "max_drawdown": dd,
+                "years": dict.fromkeys(years, yr)}  # fmt: skip
+
+    good = judge_cutoffs({0.15: r(0.14, 0.12), 0.20: r(0.15, 0.13)}, index, cfg)
+    assert good.status == "LIVE" and good.cutoff == 0.20 and good.years_beaten == 5
+    # beats only with optimistic fills: not proven (today's real result looks like this)
+    fragile = judge_cutoffs({0.15: r(0.14, 0.04), 0.20: r(0.139, 0.05)}, index, cfg)
+    assert fragile.status == "OFF" and "not proven" in fragile.reason
+    deep = judge_cutoffs({0.15: r(0.14, 0.12, dd=-0.55), 0.20: r(0.15, 0.13, dd=-0.55)}, index, cfg)
+    assert deep.status == "OFF"  # far deeper worst fall
+    lonely = judge_cutoffs({0.10: r(0.05, 0.04), 0.15: r(0.14, 0.12), 0.20: r(0.06, 0.05)},
+                           index, cfg)  # fmt: skip
+    assert lonely.status == "OFF"  # one lucky setting with losing neighbours

@@ -77,7 +77,18 @@ def _index(lake: Lake, name: str) -> pl.DataFrame:
     ).pl()
 
 
-def run_money_backtest(lake: Lake, cfg: AppConfig, today: date) -> MoneyRun:
+@dataclass
+class Inputs:
+    signals: pl.DataFrame
+    prices: pl.DataFrame
+    sessions: list[date]
+    signal_days: set[date]
+    nifty50: pl.DataFrame
+    nifty500: pl.DataFrame
+    base: Params
+
+
+def load_inputs(lake: Lake, cfg: AppConfig) -> Inputs:
     signals = _signals(lake, cfg)
     s = cfg.signals
     # only the stocks any tested cutoff could buy (a few per week), not the whole universe
@@ -94,8 +105,6 @@ def run_money_backtest(lake: Lake, cfg: AppConfig, today: date) -> MoneyRun:
     nifty50, nifty500 = _index(lake, "nifty 50"), _index(lake, "nifty 500")
     start, end = signals["trade_date"].min(), prices["trade_date"].max()
     sessions = [d for d in nifty50["trade_date"].to_list() if start <= d <= end]
-    signal_days = set(signals["trade_date"].unique().to_list())
-
     base = Params(
         cutoff=0.0,
         weekly=cfg.budget.weekly_inr,
@@ -110,6 +119,14 @@ def run_money_backtest(lake: Lake, cfg: AppConfig, today: date) -> MoneyRun:
         drawdown_pause=cfg.risk.drawdown_pause,
         drawdown_lookback=cfg.risk.drawdown_lookback_days,
     )
+    days = set(signals["trade_date"].unique().to_list())
+    return Inputs(signals, prices, sessions, days, nifty50, nifty500, base)
+
+
+def run_money_backtest(lake: Lake, cfg: AppConfig, today: date) -> MoneyRun:
+    i = load_inputs(lake, cfg)
+    signals, prices, sessions, signal_days = i.signals, i.prices, i.sessions, i.signal_days
+    nifty50, nifty500, base = i.nifty50, i.nifty500, i.base
     scenarios = {
         f"₹{cfg.budget.weekly_inr:,.0f} a week (your budget)": base,
         "₹1,00,000 at the start": replace(base, weekly=0.0, initial=100_000.0),
@@ -195,3 +212,129 @@ def _report(lake, cfg, today, table: pl.DataFrame, start: date, end: date) -> Pa
             )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
+
+
+# --- the money gate: do buy ideas beat the index after costs? ------------------------------------
+
+GATE_CUTOFFS = (0.10, 0.15, 0.20, 0.25, 0.30)
+GATE_START = 100_000.0  # a lump sum isolates the strategy from the timing of contributions
+
+
+@dataclass(frozen=True)
+class MoneyGate:
+    status: str  # LIVE or OFF
+    cutoff: float | None
+    reason: str
+    xirr: float | None
+    xirr_stress: float | None
+    index_xirr: float | None
+    max_drawdown: float | None
+    index_drawdown: float | None
+    years_beaten: int
+    years: int
+    tested_from: date
+    tested_to: date
+
+    def as_row(self) -> dict:
+        return {k: getattr(self, k) for k in self.__dataclass_fields__}
+
+
+def yearly_returns(daily: pl.DataFrame) -> dict[int, float]:
+    """Calendar-year returns from a time-weighted index (``twr``)."""
+    y = (
+        daily.with_columns(pl.col("trade_date").dt.year().alias("y"))
+        .group_by("y")
+        .agg(pl.col("twr").last())
+        .sort("y")
+    )
+    out, prev = {}, 1.0
+    for year, twr in y.iter_rows():
+        out[year] = twr / prev - 1
+        prev = twr
+    return out
+
+
+def judge_cutoffs(results: dict[float, dict], index: dict, cfg: AppConfig) -> MoneyGate:
+    """``results``: cutoff -> {xirr, xirr_stress, max_drawdown, years: {year: return}};
+    ``index``: {xirr, max_drawdown, years, tested_from, tested_to}. Pure: unit-tested."""
+    m = cfg.signals.money
+    beats = {c: (r["xirr"] or -1) > (index["xirr"] or 0) for c, r in results.items()}
+    cuts = sorted(results)
+    rows = []
+    for i, c in enumerate(cuts):
+        r = results[c]
+        years = [y for y in r["years"] if y in index["years"]]
+        won = sum(r["years"][y] > index["years"][y] for y in years)
+        neighbours = [cuts[j] for j in (i - 1, i + 1) if 0 <= j < len(cuts)]
+        ok = (
+            beats[c]
+            and (r["xirr_stress"] or -1) > (index["xirr"] or 0)
+            and r["max_drawdown"] >= index["max_drawdown"] - m.max_extra_drawdown
+            and years
+            and won / len(years) >= m.min_share_of_years
+            and any(beats[n] for n in neighbours)
+        )
+        rows.append((c, r, won, len(years), bool(ok)))
+    passing = [x for x in rows if x[4]]
+    pick = max(passing or rows, key=lambda x: x[1]["xirr_stress"] or -1)
+    c, r, won, n, ok = pick
+
+    def pct(v):
+        return "n/a" if v is None else f"{v:+.1%}"
+
+    detail = (
+        f"buy at {c:.0%}+ made {pct(r['xirr'])} a year vs the Nifty 500's "
+        f"{pct(index['xirr'])} ({pct(r['xirr_stress'])} with "
+        f"{m.stress_slippage_bps:g} bps slippage), beat it in {won} of {n} years, worst fall "
+        f"{r['max_drawdown']:.0%} vs {index['max_drawdown']:.0%}"
+    )
+    common = dict(
+        xirr=r["xirr"], xirr_stress=r["xirr_stress"], index_xirr=index["xirr"],
+        max_drawdown=r["max_drawdown"], index_drawdown=index["max_drawdown"],
+        years_beaten=won, years=n, tested_from=index["tested_from"],
+        tested_to=index["tested_to"],
+    )  # fmt: skip
+    if ok:
+        return MoneyGate("LIVE", c, "proven: " + detail, **common)
+    return MoneyGate("OFF", None, "not proven to beat an index fund after costs. Best: " + detail,
+                     **common)  # fmt: skip
+
+
+def evaluate_money_gate(lake: Lake, cfg: AppConfig, today: date) -> MoneyGate:
+    """Run the money backtest per cutoff (lump sum, spare cash in the index, as the satellite of
+    a core-satellite portfolio would be), judge it, and store the verdict in gold ``money_gate``.
+    """
+    i = load_inputs(lake, cfg)
+    p0 = replace(i.base, weekly=0.0, initial=GATE_START, idle_in_index=True)
+    b = benchmark(i.nifty500, i.sessions, i.signal_days, p0)
+    bm = benchmark_metrics(b, [(i.sessions[0], GATE_START)])
+    index = {
+        "xirr": bm["xirr"], "max_drawdown": bm["max_drawdown"], "years": yearly_returns(b),
+        "tested_from": i.sessions[0], "tested_to": i.sessions[-1],
+    }  # fmt: skip
+    stress = max(cfg.signals.money.stress_slippage_bps, cfg.costs.slippage_bps)
+    results = {}
+    for c in GATE_CUTOFFS:
+        r = simulate(i.signals, i.prices, i.sessions, replace(p0, cutoff=c), cfg.costs, i.nifty500)
+        rs = simulate(
+            i.signals, i.prices, i.sessions, replace(p0, cutoff=c, slippage_bps=stress),
+            cfg.costs, i.nifty500,
+        )  # fmt: skip
+        results[c] = {
+            "xirr": r.metrics["xirr"], "xirr_stress": rs.metrics["xirr"],
+            "max_drawdown": r.metrics["max_drawdown"], "years": yearly_returns(r.daily),
+        }  # fmt: skip
+    gate = judge_cutoffs(results, index, cfg)
+    lake.write_partition(
+        "gold", "money_gate", "built", today.isoformat(),
+        pl.DataFrame([gate.as_row()]).with_columns(pl.lit("A").alias("signal")),
+    )  # fmt: skip
+    return gate
+
+
+def latest_money_gate(lake: Lake) -> dict | None:
+    if not lake.has_table("gold", "money_gate"):
+        return None
+    g = lake.scan("gold", "money_gate").collect()
+    g = g.filter(pl.col("built") == pl.col("built").max())
+    return g.row(0, named=True) if g.height else None

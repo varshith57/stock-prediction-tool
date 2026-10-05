@@ -50,6 +50,9 @@ class _Strict(BaseModel):
 class BudgetConfig(_Strict):
     weekly_inr: float = Field(gt=0)
     min_position_inr: float = Field(gt=0)
+    # Core and satellite: this share of new money funds the app's stock ideas (the satellite);
+    # the rest goes to an index fund each week (the core). 1.0 = everything to stock ideas.
+    satellite_share: float = Field(default=0.2, gt=0, le=1)
 
 
 class GateConfig(_Strict):
@@ -57,6 +60,15 @@ class GateConfig(_Strict):
     min_wilson_lower_bound: float = Field(gt=0, lt=1)
     live_recheck_last_n: int = Field(ge=1)
     live_min_precision: float = Field(gt=0, lt=1)
+
+
+class MoneyGateConfig(_Strict):
+    """When buy ideas count as proven: they must have made more than the index after costs and
+    tax, also at a pessimistic slippage, in most years, without a much deeper worst fall."""
+
+    stress_slippage_bps: float = Field(default=50.0, ge=0)
+    min_share_of_years: float = Field(default=0.6, gt=0, le=1)
+    max_extra_drawdown: float = Field(default=0.10, ge=0, lt=1)
 
 
 class SignalsConfig(_Strict):
@@ -67,6 +79,10 @@ class SignalsConfig(_Strict):
     max_opportunities: int = Field(ge=0)
     gate: GateConfig
     model: Literal["lightgbm", "ensemble"] = "lightgbm"  # ensemble = models.ensemble (5 models)
+    # How buy ideas qualify: "money" = beat the index after costs in the money backtest
+    # (models.money); "accuracy" = the 90% precision gate (models.gate).
+    qualify: Literal["money", "accuracy"] = "money"
+    money: MoneyGateConfig = MoneyGateConfig()
 
 
 def horizon(days: int) -> str:

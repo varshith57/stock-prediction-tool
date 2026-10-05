@@ -11,7 +11,9 @@ Order of precedence:
    ``max_opportunities``, highest expected gain first. Each is sized to the lower of the cash left
    and the per-stock cap (``max_stock_weight`` of portfolio + budget, but at least
    ``min_position_inr`` so a new portfolio can start), whole shares, and skipped with a note if
-   that is below ``min_position_inr``.
+   that is below ``min_position_inr``. Ranked by expected gain after the round trip's costs
+   (``net_edge``); ideas that can't cover their costs are dropped. Only the satellite share of
+   new money funds them; the rest is this week's index-fund amount (``core_inr``).
 4. Everything else held, riskiest first (highest chance of the drop). Together, exits and holds
    cover every holding.
 5. A watch queue: the next-best buy candidates by chance, below the bar or while signal A is
@@ -34,6 +36,7 @@ from stockapp.plan.rules import (
     exit_rules,
     review_note,
 )
+from stockapp.portfolio.costs import order_charges
 
 MIN_LISTED_SESSIONS = 250
 WATCH_LIMIT = 15
@@ -98,6 +101,7 @@ class Plan:
     regime: Regime
     drawdown: Drawdown
     budget_available: float
+    core_inr: float = 0.0  # this week's index-fund amount (the core)
     exits: list[PlanItem] = field(default_factory=list)
     opportunities: list[PlanItem] = field(default_factory=list)
     holds: list[PlanItem] = field(default_factory=list)
@@ -115,6 +119,17 @@ class Plan:
         d = asdict(self)
         d["signal_date"], d["week_of"] = str(self.signal_date), str(self.week_of)
         return d
+
+
+def net_edge(expected_gain: float | None, spend: float, cfg: AppConfig) -> float:
+    """Expected gain minus the round trip's costs, as a share of ``spend``: buy and sell charges
+    (incl. the flat DP fee, heavy on small positions) and slippage on both fills."""
+    if expected_gain is None or spend <= 0:
+        return -1.0
+    buy = order_charges("BUY", 1, spend, cfg.costs).total
+    sell = order_charges("SELL", 1, spend * (1 + expected_gain), cfg.costs).total
+    slippage = 2 * cfg.costs.slippage_bps / 10_000
+    return expected_gain - (buy + sell) / spend - slippage
 
 
 def build_plan(
@@ -142,6 +157,7 @@ def build_plan(
         regime,
         drawdown,
         budget_available,
+        core_inr=cfg.budget.weekly_inr * (1 - cfg.budget.satellite_share),
         gates=gates,
         model_version=model_version,
     )
@@ -244,17 +260,24 @@ def build_plan(
         and c.company_id not in held
     ]
     if a_live and not blockers:
-        chosen = sorted(
-            (c for c in eligible if c.p_a >= gate_a.cutoff),  # type: ignore[operator,union-attr]
-            key=lambda c: c.expected_gain or 0.0,
-            reverse=True,
-        )
-        cash = budget_available
+        cash = budget_available * cfg.budget.satellite_share
         # per-stock cap on the portfolio after this week's money goes in; never below the minimum
         # position, or a new or small portfolio could never buy anything
         cap_rupees = max(
             cfg.risk.max_stock_weight * (portfolio_value + budget_available),
             cfg.budget.min_position_inr,
+        )
+        # best expected gain after the round trip's costs first; ideas that can't cover their
+        # costs aren't ideas
+        edges = {
+            c.company_id: net_edge(c.expected_gain, min(cash, cap_rupees), cfg)
+            for c in eligible
+            if c.p_a >= gate_a.cutoff  # type: ignore[operator,union-attr]
+        }
+        chosen = sorted(
+            (c for c in eligible if edges.get(c.company_id, 0.0) > 0),
+            key=lambda c: edges[c.company_id],
+            reverse=True,
         )
         for c in chosen:
             if len(plan.opportunities) >= cfg.signals.max_opportunities:
@@ -274,11 +297,12 @@ def build_plan(
                     "BUY",
                     c.company_id,
                     c.symbol,
-                    f"Certainty {c.p_a:.0%} · expected gain {c.expected_gain or 0:+.0%} · "
+                    f"Certainty {c.p_a:.0%} · expected gain after costs "
+                    f"{edges[c.company_id]:+.1%} · "
                     f"buy {qty} near {c.last_close:,.2f} · sell-out at {sellout:,.2f}",
                     c.reason_a,
                     probability=c.p_a,
-                    expected_gain=c.expected_gain,
+                    expected_gain=edges[c.company_id],
                     quantity=qty,
                     guide_price=c.last_close,
                     sellout_price=sellout,

@@ -103,7 +103,7 @@ def build_weekly_plan(conn: psycopg.Connection, lake: Lake, cfg: AppConfig, toda
         candidates=cands,
         holdings=states,
         holding_weights=weights,
-        gates=inputs.gates(lake),
+        gates=inputs.gates(lake, cfg),
         regime=inputs.regime(market, cfg),
         drawdown=dd,
         budget_available=budget,

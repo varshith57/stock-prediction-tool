@@ -85,7 +85,21 @@ def _column_head(title: str, count: int, tone: str, hint: str) -> None:
 def _buy(plan: dict, plan_id: int, logged: dict, bar: float, gain: float, when: str) -> None:
     acts = plan["opportunities"]
     queue = [w for w in plan.get("watch_buys", []) if (w["probability"] or 0) >= bar]
-    _column_head("Buy", len(acts), "green", f"New stocks likely to rise {gain:.0%} {when}.")
+    core = plan.get("core_inr") or 0.0
+    _column_head("Buy", len(acts) + (1 if core else 0), "green", "Index fund first, then ideas.")
+    if core:
+        share = cfg().budget.satellite_share
+        with st.container(border=True):
+            _card(
+                "Index fund",
+                "Core",
+                "green",
+                [
+                    f"Put {inr(core)} into a Nifty 50 or Nifty 500 index fund or ETF this week",
+                    f"That's {1 - share:.0%} of your weekly budget. Stock ideas get the other "
+                    f"{share:.0%}, so a bad run of ideas can only touch a small slice.",
+                ],
+            )
     for o in acts:
         with st.container(border=True):
             _card(
@@ -94,16 +108,20 @@ def _buy(plan: dict, plan_id: int, logged: dict, bar: float, gain: float, when: 
                 "green",
                 [
                     f"Buy {o['quantity']} shares near {inr(o['guide_price'], 2)}",
+                    f"Expected gain after costs {o['expected_gain']:+.1%}",
                     f"Sell when it reaches {inr(o['sellout_price'], 2)} (+{gain:.0%})",
                 ],
             )
             _log(plan_id, f"BUY:{o['company_id']}", logged)
     if not acts:
         with st.container(border=True):
-            st.markdown('<div class="sa-sym">Nothing to buy</div>', unsafe_allow_html=True)
+            st.markdown('<div class="sa-sym">No stock ideas</div>', unsafe_allow_html=True)
+            a = plan.get("gates", {}).get("A", {})
             ui.muted(
-                f"No stock is {ACT_BAR:.0%} sure to rise {gain:.0%} {when}. Most weeks are "
-                "like this: waiting is a decision too."
+                "Stock ideas haven't proven they beat an index fund after costs, so none are "
+                "'act now'. Waiting is a decision too."
+                if a and a.get("status") != "LIVE"
+                else f"Nothing qualifies {when}. Waiting is a decision too."
             )
     for n in plan["notes"]:
         if "paused" in n or "stress" in n:
@@ -247,10 +265,16 @@ def render() -> None:
         _sell(plan, row["plan_id"], logged, sell_watch, f"{sig.crash_threshold:.0%}+ {when}")
 
     gates = plan.get("gates", {})
-    if any(g["status"] != "LIVE" for g in gates.values()):
-        st.markdown('<div style="height:1.5rem"></div>', unsafe_allow_html=True)
-        ui.muted(
-            "The buy and drop predictions haven't yet proven 90% accurate in testing, so for now "
-            "only rule-based sells (like a stop-loss) can be acted on. Rules are shown without a "
-            "percentage because they're rules, not predictions."
+    notes = []
+    a, c = gates.get("A"), gates.get("C")
+    if a and a["status"] != "LIVE":
+        notes.append(f"Stock ideas: {a['reason']}.")
+    if c and c["status"] != "LIVE":
+        notes.append(
+            "Drop warnings aren't 90% accurate yet, so sells come only from rules on trades "
+            "(stop-loss, target, time), shown without a percentage because they're rules."
         )
+    if notes:
+        st.markdown('<div style="height:1.5rem"></div>', unsafe_allow_html=True)
+        for n in notes:
+            ui.muted(n[0].upper() + n[1:])

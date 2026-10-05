@@ -56,10 +56,10 @@ def test_buckets_and_slider(home):
     at = AppTest.from_function(_script, default_timeout=30).run()
     assert not at.exception
     text = _text(at)
-    assert "Nothing to buy" in text and "N4" not in text  # 90%: watch items stay hidden
+    assert "No stock ideas" in text and "N4" not in text  # 90%: watch items stay hidden
     assert "Stop-loss hit" in text and "-20.0% since you bought" in text  # rule, no %
     assert text.index("RISKY") < text.index("SAFE")  # riskiest hold first
-    assert "haven't yet proven 90% accurate" in text
+    assert "Drop warnings aren't 90% accurate yet" in text and "Stock ideas: best 43%" in text
 
     at.slider(key="confidence").set_value(15).run()
     assert not at.exception
