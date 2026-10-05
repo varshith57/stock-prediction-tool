@@ -48,10 +48,13 @@ def next_monday(d: date) -> date:
 
 
 def _latest_model(models_dir: Path, signal: str) -> dict | None:
-    files = sorted(models_dir.glob(f"signal_{signal}_*.pkl"))
-    if not files:
+    from stockapp.features.pipeline import FEATURE_VERSION
+    from stockapp.models.files import newest_model
+
+    path = newest_model(models_dir, f"signal_{signal}", FEATURE_VERSION)
+    if path is None:
         return None
-    with files[-1].open("rb") as f:
+    with path.open("rb") as f:
         return pickle.load(f)
 
 

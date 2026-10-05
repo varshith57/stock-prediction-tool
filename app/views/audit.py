@@ -47,8 +47,8 @@ def render() -> None:
     else:
         ui.hero(
             "No buy or drop advice in this period",
-            "Stock ideas weren't proven to beat an index fund after costs, so the app stayed "
-            "quiet rather than guess. Rule-based sells on trades still applied.",
+            "Nothing qualified, so the app stayed quiet rather than guess. Rule-based sells on "
+            "trades still applied.",
         )
     matured = sum(c.matured for c in cards)
     correct = sum(c.correct for c in cards)

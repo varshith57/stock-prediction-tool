@@ -63,8 +63,17 @@ def live_signals(lake: Lake, cfg: AppConfig) -> pl.DataFrame:
     )
 
 
+def paper_cutoff(lake: Lake, cfg: AppConfig) -> float:
+    """What the app would act on: the money test's level when it passes, else ``paper.cutoff``."""
+    if cfg.signals.qualify == "money":
+        g = money.latest_money_gate(lake)
+        if g and g["status"] == "LIVE" and g["cutoff"] is not None:
+            return float(g["cutoff"])
+    return cfg.paper.cutoff
+
+
 def run_paper(lake: Lake, cfg: AppConfig, with_expectation: bool = True) -> Paper:
-    cut = cfg.paper.cutoff
+    cut = paper_cutoff(lake, cfg)
     signals = live_signals(lake, cfg)
     if signals.is_empty():
         return Paper(None, 0, None, None, None, cut)

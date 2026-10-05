@@ -159,10 +159,12 @@ def build_safety(lake: Lake, cfg: AppConfig, today: date, on_fold=None) -> Safet
 
 def score_safety(lake: Lake) -> pl.DataFrame | None:
     """Score the newest week with the saved safety model (weekly, seconds)."""
-    files = sorted(_models_dir(lake).glob("safety_*.pkl"))
-    if not files:
+    from stockapp.models.files import newest_model
+
+    path = newest_model(_models_dir(lake), "safety", FEATURE_VERSION)
+    if path is None:
         return None
-    with files[-1].open("rb") as f:
+    with path.open("rb") as f:
         m = pickle.load(f)
     samples = load_weekly_samples(lake)
     day = samples["trade_date"].max()

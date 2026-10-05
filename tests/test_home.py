@@ -59,7 +59,8 @@ def test_buckets_and_slider(home):
     assert "No stock ideas" in text and "N4" not in text  # 90%: watch items stay hidden
     assert "Stop-loss hit" in text and "-20.0% since you bought" in text  # rule, no %
     assert text.index("RISKY") < text.index("SAFE")  # riskiest hold first
-    assert "Drop warnings aren't 90% accurate yet" in text and "Stock ideas: best 43%" in text
+    assert "Drop warnings haven't passed their tests yet" in text
+    assert "Stock ideas: best 43%" in text
 
     at.slider(key="confidence").set_value(15).run()
     assert not at.exception

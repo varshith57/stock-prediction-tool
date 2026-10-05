@@ -170,3 +170,14 @@ def test_open_positions_are_reported_and_paper_waits_for_scores(lake):
     assert [x.company_id for x in r.open_positions] == ["UP"] and r.trades == []
     paper = run_paper(lake, load_app_config(local_path=None))
     assert paper.result is None and paper.weeks == 0  # nothing until the first weekly scores
+
+
+def test_newest_model_prefers_the_current_feature_version_then_the_latest_day(tmp_path):
+    from stockapp.models.files import newest_model
+
+    for name in ("signal_A_6236960558d9-20261004", "signal_A_0e95975d8a72-20261005",
+                 "signal_A_0e95975d8a72-20260901", "signal_C_0e95975d8a72-20261006"):  # fmt: skip
+        (tmp_path / f"{name}.pkl").write_bytes(b"")
+    assert newest_model(tmp_path, "signal_A", "0e95975d8a72").stem.endswith("20261005")
+    assert newest_model(tmp_path, "signal_A", "unknown").stem.endswith("20261005")  # latest day
+    assert newest_model(tmp_path, "safety", "x") is None

@@ -118,6 +118,11 @@ Neon later) for app state, LightGBM, scikit-learn, Streamlit, pytest, ruff, GitH
   leak future splits). Windows group by (company_id, segment) so nothing spans a series break.
   Any new feature needs a catalogue entry and must pass tests/test_m5.py (truncation invariance).
 - Labels: A from the T+1 open, C from the T close, 5-session window, null across breaks/halts.
+- Results dates (`ingest/nse_results.py`, `stockapp results backfill`, weekly refresh): board
+  meetings (announcement time), results filings (to Mar 2025) and integrated filings (2025 on,
+  paginated: size=10000 + totalCount check). `features/events.py` turns them into 4 point-in-time
+  features (known by the signal date's 20:00); matched by ISIN, then symbol as of the date.
+  Insurers file differently and are missing. XBRL links are stored for fundamentals (next).
 
 ## Models and gate (M6-M7)
 - `uv run stockapp models backtest` (~7 min): walk-forward A/C + baselines -> gold

@@ -1,4 +1,18 @@
-# Model card: signals A and C (v1)
+# Model card: signals A and C (v2)
+
+## 2026-10-05 update (feature version 0e95975d8a72)
+- 57 features: the 53 price/volume features plus 4 results-date features (days since results,
+  days to the next announced results meeting, results this week, reaction to the last results).
+  Walk-forward, out of sample: A AUC 0.712 (was 0.706), top-5 22.6% (same); C AUC 0.686 (was
+  0.681), top-5 23.3% (was 23.9%). Small ranking gain only; neither passes the 90% gate.
+- Buy ideas now qualify by the **money test** (beat the Nifty 500 after all costs and tax): with
+  the new features, buying at 30%+ made +12.4% a year vs +10.0% (+10.5% at 50 bps slippage),
+  beat it in 6 of 9 years, worst fall -35% vs -38%: passes, narrowly. The test assumes spare
+  money moves between an index fund and stocks at no cost or tax, so the real margin is
+  thinner. Paper trading (Track record) is the check before real money.
+- Safety net (monthly -5% warnings for holdings, group of 5 models, deduplicated): right 78% on
+  183 separate warnings, worst case 71%, 6 of 7 years: OFF (bar 80%).
+
 
 **Status (2026-10-04): both signals OFF.** Neither meets the 90% precision gate, so the app shows
 no A or C signals; exits on holdings come from deterministic rules only.

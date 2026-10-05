@@ -158,7 +158,7 @@ def _sell(plan: dict, plan_id: int, logged: dict, watch: list[dict], drop: str) 
     if not acts:
         with st.container(border=True):
             st.markdown('<div class="sa-sym">Nothing to sell</div>', unsafe_allow_html=True)
-            ui.muted("None of your stocks has hit a sell rule or a 90% drop warning.")
+            ui.muted("None of your stocks has hit a sell rule or a proven drop warning.")
     if watch:
         st.markdown(
             '<div class="sa-watchhead">Up next · watch, don\'t sell yet</div>',
@@ -272,10 +272,16 @@ def render() -> None:
     a, c = gates.get("A"), gates.get("C")
     if a and a["status"] != "LIVE":
         notes.append(f"Stock ideas: {a['reason']}.")
+    elif a and a["reason"].startswith("proven"):
+        notes.append(
+            f"Stock ideas passed the money test: {a['reason'].removeprefix('proven: ')}. The "
+            "margin is small, so watch the paper-trading record on Track record for a few "
+            "months before putting real money behind them."
+        )
     if c and c["status"] != "LIVE":
         notes.append(
-            "Drop warnings aren't 90% accurate yet, so sells come only from rules on trades "
-            "(stop-loss, target, time), shown without a percentage because they're rules."
+            "Drop warnings haven't passed their tests yet, so sells come only from rules on "
+            "trades (stop-loss, target, time), shown without a percentage because they're rules."
         )
     if notes:
         st.markdown('<div style="height:1.5rem"></div>', unsafe_allow_html=True)
