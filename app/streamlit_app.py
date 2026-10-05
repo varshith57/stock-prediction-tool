@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from stockapp import auth
 from stockapp.auth import verify_password
 from stockapp.config import get_settings
 
@@ -20,8 +21,12 @@ ui.inject()
 LOGO = str(Path(__file__).parent / "assets" / "logo.svg")
 
 
+def login_skipped() -> bool:
+    return auth.login_skipped(get_settings().app_auth_disabled, st.get_option("server.address"))
+
+
 def _login() -> bool:
-    if st.session_state.get("authed"):
+    if st.session_state.get("authed") or login_skipped():
         return True
     stored = get_settings().app_password_hash
     _, mid, _ = st.columns([1, 1.1, 1])
@@ -82,7 +87,9 @@ with st.sidebar:
     st.markdown('<div style="height:1.2rem"></div>', unsafe_allow_html=True)
     ui.muted("Nifty 500 · weekly decisions")
     data_status.sidebar_status()
-    if st.button("Sign out", icon=":material/logout:", type="tertiary"):
+    if login_skipped():
+        st.markdown(ui.pill("Login off (development)", "amber"), unsafe_allow_html=True)
+    elif st.button("Sign out", icon=":material/logout:", type="tertiary"):
         st.session_state.clear()
         st.rerun()
 

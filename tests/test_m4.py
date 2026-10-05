@@ -11,7 +11,7 @@ import polars as pl
 import psycopg
 import pytest
 
-from stockapp.auth import hash_password, verify_password
+from stockapp.auth import hash_password, login_skipped, verify_password
 from stockapp.config import load_app_config
 from stockapp.lake import Lake
 from stockapp.portfolio import service
@@ -287,3 +287,10 @@ def test_password_hash_roundtrip():
     assert not verify_password("x", "garbage")
     with pytest.raises(ValueError):
         hash_password("short")
+
+
+def test_login_can_be_skipped_only_on_this_machine():
+    assert login_skipped(True, "127.0.0.1") and login_skipped(True, "localhost")
+    assert not login_skipped(False, "127.0.0.1")  # off unless asked for
+    assert not login_skipped(True, "")  # empty address = all interfaces: login stays on
+    assert not login_skipped(True, None) and not login_skipped(True, "0.0.0.0")

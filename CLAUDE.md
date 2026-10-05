@@ -83,6 +83,8 @@ Neon later) for app state, LightGBM, scikit-learn, Streamlit, pytest, ruff, GitH
 ## App and portfolio (M4)
 - `uv run streamlit run app/streamlit_app.py`; screens in `app/views/`. Login needs
   `APP_PASSWORD_HASH` (from `uv run stockapp set-password`); the app refuses to start without it.
+  During development `APP_AUTH_DISABLED=true` in .env skips the login, honoured only while the
+  server listens on 127.0.0.1 (`auth.login_skipped`). Remove it when development is over.
 - The app reads small gold tables only (`latest_prices`, `quality_daily`), never full history.
   `quality build` refreshes them.
 - Portfolio = `portfolio_transactions` in Postgres -> `portfolio.ledger` (FIFO lots, bonus/split

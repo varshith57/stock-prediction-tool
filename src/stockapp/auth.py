@@ -33,3 +33,12 @@ def verify_password(password: str, stored: str) -> bool:
         return False
     actual = hashlib.scrypt(password.encode(), salt=salt, n=_N, r=_R, p=_P, dklen=len(expected))
     return hmac.compare_digest(actual, expected)
+
+
+LOCAL_ADDRESSES = {"127.0.0.1", "localhost", "::1"}
+
+
+def login_skipped(disabled: bool, server_address: str | None) -> bool:
+    """``APP_AUTH_DISABLED`` skips the login while developing, but only when the server listens
+    on this machine alone (an empty address means all interfaces, so the login stays on)."""
+    return disabled and (server_address or "") in LOCAL_ADDRESSES

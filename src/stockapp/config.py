@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     r2_access_key_id: SecretStr | None = None
     r2_secret_access_key: SecretStr | None = None
     app_password_hash: SecretStr | None = None  # set with: uv run stockapp set-password
+    # Development only: skip the login. Honoured only while the app is bound to this machine.
+    app_auth_disabled: bool = False
 
     @property
     def telegram_configured(self) -> bool:
