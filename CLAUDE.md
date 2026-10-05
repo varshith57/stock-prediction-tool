@@ -140,6 +140,9 @@ Neon later) for app state, LightGBM, scikit-learn, Streamlit, pytest, ruff, GitH
   90% gate below. Ideas are ranked by `engine.net_edge` (expected gain after round-trip costs);
   only `budget.satellite_share` of new money funds them, the rest is the week's index-fund
   amount (`plan.core_inr`).
+- Paper trading (`stockapp.paper`, shown on Track record): the live weekly `latest_scores`
+  replayed through `strategy.simulate` at `paper.cutoff` with pretend money; recomputed, never
+  stored, compared with the same strategy in the backtest. Judge after ~12 weeks.
 - The gate (`models/gate.py`) uses out-of-sample predictions only, counts only what would be shown
   (A: 5/week by expected gain), and never lowers the bar. Both signals are OFF as of 2026-10-04;
   see docs/MODEL_CARD.md for numbers and known limits (overconfident tails).

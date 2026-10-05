@@ -160,3 +160,13 @@ def test_money_gate_needs_a_robust_win_over_the_index():
     lonely = judge_cutoffs({0.10: r(0.05, 0.04), 0.15: r(0.14, 0.12), 0.20: r(0.06, 0.05)},
                            index, cfg)  # fmt: skip
     assert lonely.status == "OFF"  # one lucky setting with losing neighbours
+
+
+def test_open_positions_are_reported_and_paper_waits_for_scores(lake):
+    from stockapp.paper import run_paper
+
+    s = _sessions(date(2021, 1, 4), 8)  # bought on day 6, not yet out
+    r = simulate(_signals("UP", s), _prices("UP", s, 0.0), s, P, COSTS)
+    assert [x.company_id for x in r.open_positions] == ["UP"] and r.trades == []
+    paper = run_paper(lake, load_app_config(local_path=None))
+    assert paper.result is None and paper.weeks == 0  # nothing until the first weekly scores

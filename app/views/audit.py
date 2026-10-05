@@ -47,8 +47,8 @@ def render() -> None:
     else:
         ui.hero(
             "No buy or drop advice in this period",
-            "The predictions weren't proven 90% accurate yet, so the app stayed quiet rather "
-            "than guess. Rule-based sells still applied.",
+            "Stock ideas weren't proven to beat an index fund after costs, so the app stayed "
+            "quiet rather than guess. Rule-based sells on trades still applied.",
         )
     matured = sum(c.matured for c in cards)
     correct = sum(c.correct for c in cards)
@@ -71,8 +71,67 @@ def render() -> None:
         ]
     )
 
+    _paper()
+
     with st.expander("Full report"):
         _details(audit, money, start, end)
+
+
+@st.cache_data(ttl=3600, show_spinner="Replaying the paper trades...")
+def _paper_run():
+    from stockapp.paper import run_paper
+
+    return run_paper(lake(), cfg())
+
+
+def _paper() -> None:
+    """The live picks traded with pretend money, against the index and the backtest."""
+    ui.section("Paper trading (no real money)")
+    p = _paper_run()
+    if p.result is None:
+        ui.muted("Starts with the first weekly scores.")
+        return
+    r, m = p.result, p.result.metrics
+    start = p.result.params.initial
+    mine = m["final_value"] / start - 1
+    idx = p.index["final_value"] / p.index["contributed"] - 1 if p.index else None
+    closed = r.trades
+    ui.kpis(
+        [
+            ("Paper money", inr(m["final_value"]), f"{mine:+.2%} since {p.started:%d %b %Y}",
+             ui.tone_for(mine)),
+            ("Nifty 500, same money", _pct(idx), "for comparison", "grey"),
+            ("Trades closed", str(len(closed)),
+             f"{sum(t.pnl > 0 for t in closed)} won" if closed else f"{len(r.open_positions)} open",
+             "grey"),
+            ("Weeks so far", str(p.weeks), "judge after about 12", "grey"),
+        ]
+    )  # fmt: skip
+    e = p.expected
+    if e:
+        avg = f"{e['avg_trade']:+.1%}" if e["avg_trade"] is not None else "n/a"
+        ui.muted(
+            f"Rules: buy ideas at {p.cutoff:.0%}+ chance, the app's sizing and exits, every fee "
+            f"and tax, spare money in the Nifty 500. If the model works live as it did in "
+            f"testing (2018 on): about {e['trades_per_week']:.1f} trades a week, "
+            f"{e['win_rate']:.0%} winners, {avg} per trade after costs."
+        )
+    if closed:
+        live_avg = sum(t.ret for t in closed) / len(closed)
+        ui.muted(
+            f"So far: {len(closed)} trades, {sum(t.pnl > 0 for t in closed) / len(closed):.0%} "
+            f"winners, {live_avg:+.1%} per trade."
+        )
+    if p.weeks < 12:
+        ui.muted(
+            "Too early to judge: a few weeks are mostly luck. Don't put real money behind the "
+            "ideas until about 12 weeks of paper results look like the test."
+        )
+    if r.open_positions:
+        ui.muted(
+            "Open on paper: "
+            + ", ".join(f"{x.symbol} (since {x.entry_date:%d %b})" for x in r.open_positions)
+        )
 
 
 def _details(audit, money, start, end) -> None:

@@ -234,8 +234,9 @@ def render() -> None:
     with right:
         if pct >= 90:
             ui.muted(
-                "Act only on what's 90% sure. Slide left to peek at what's next in line: "
-                "those are to watch, not to act on."
+                "Only proven ideas are 'act now'. Slide left to see stocks by their chance of "
+                f"rising {cfg().signals.gain_threshold:.0%} "
+                f"{horizon(cfg().signals.window_trading_days)}: those are to watch, not to act on."
             )
         else:
             a, c = _track("A", bar), _track("C", bar)

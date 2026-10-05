@@ -97,6 +97,7 @@ class Result:
     fees: float
     taxes: float
     metrics: dict = field(default_factory=dict)
+    open_positions: list[Position] = field(default_factory=list)
 
 
 def financial_year(d: date) -> int:
@@ -296,7 +297,7 @@ def simulate(
     daily = pl.DataFrame(
         rows, schema=["trade_date", "value", "contributed", "cash", "twr"], orient="row"
     )
-    res = Result(params, daily, trades, flows, fees, taxes)
+    res = Result(params, daily, trades, flows, fees, taxes, open_positions=list(held.values()))
     res.metrics = metrics(res)
     return res
 

@@ -74,3 +74,7 @@ schedule:                           # IST
 
 goal:
   target_monthly_return: null       # optional: shown with its historical feasibility
+
+paper:                              # live picks traded with pretend money (Track record)
+  cutoff: 0.20
+  start_inr: 100000

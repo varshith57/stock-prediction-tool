@@ -140,6 +140,13 @@ class TaxConfig(_Strict):
     ltcg_exemption_inr: float = Field(ge=0)
 
 
+class PaperConfig(_Strict):
+    """Paper trading: the live picks traded with pretend money (``stockapp.paper``)."""
+
+    cutoff: float = Field(default=0.20, ge=0, lt=1)  # the setting that held up best in the backtest
+    start_inr: float = Field(default=100_000.0, gt=0)
+
+
 class AlertsConfig(_Strict):
     telegram_enabled: bool
     max_per_week: int = Field(ge=0)
@@ -167,6 +174,7 @@ class AppConfig(_Strict):
     alerts: AlertsConfig
     schedule: ScheduleConfig
     goal: GoalConfig = GoalConfig()
+    paper: PaperConfig = PaperConfig()
 
 
 def load_app_config(

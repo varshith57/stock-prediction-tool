@@ -88,6 +88,25 @@ class Inputs:
     base: Params
 
 
+def base_params(cfg: AppConfig) -> Params:
+    """The app's own trading rules as backtest parameters (cutoff and money set per run)."""
+    s = cfg.signals
+    return Params(
+        cutoff=0.0,
+        weekly=cfg.budget.weekly_inr,
+        max_opps=s.max_opportunities,
+        max_stock_weight=cfg.risk.max_stock_weight,
+        min_position=cfg.budget.min_position_inr,
+        gain=s.gain_threshold,
+        stop_atr=cfg.risk.stop_atr_multiple,
+        window=s.window_trading_days,
+        slippage_bps=cfg.costs.slippage_bps,
+        stcg_rate=cfg.tax.stcg_rate,
+        drawdown_pause=cfg.risk.drawdown_pause,
+        drawdown_lookback=cfg.risk.drawdown_lookback_days,
+    )
+
+
 def load_inputs(lake: Lake, cfg: AppConfig) -> Inputs:
     signals = _signals(lake, cfg)
     s = cfg.signals
@@ -105,20 +124,7 @@ def load_inputs(lake: Lake, cfg: AppConfig) -> Inputs:
     nifty50, nifty500 = _index(lake, "nifty 50"), _index(lake, "nifty 500")
     start, end = signals["trade_date"].min(), prices["trade_date"].max()
     sessions = [d for d in nifty50["trade_date"].to_list() if start <= d <= end]
-    base = Params(
-        cutoff=0.0,
-        weekly=cfg.budget.weekly_inr,
-        max_opps=s.max_opportunities,
-        max_stock_weight=cfg.risk.max_stock_weight,
-        min_position=cfg.budget.min_position_inr,
-        gain=s.gain_threshold,
-        stop_atr=cfg.risk.stop_atr_multiple,
-        window=s.window_trading_days,
-        slippage_bps=cfg.costs.slippage_bps,
-        stcg_rate=cfg.tax.stcg_rate,
-        drawdown_pause=cfg.risk.drawdown_pause,
-        drawdown_lookback=cfg.risk.drawdown_lookback_days,
-    )
+    base = base_params(cfg)
     days = set(signals["trade_date"].unique().to_list())
     return Inputs(signals, prices, sessions, days, nifty50, nifty500, base)
 
